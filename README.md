@@ -29,6 +29,10 @@ Tick "Free play mode" above the map list and maps load as Free Play, with a ball
 
 When a newer build is out, an "Update now" button shows at the top of the plugin. Hit it, then restart Rocket League.
 
+## Workshop textures
+
+Most maps need the shared workshop textures or they look black or pink. The plugin checks for them every time it opens. If they're missing, hit "Get textures", download the zip in your browser, and the plugin installs it from your Downloads folder by itself. It also spots texture files that ended up in the wrong folder (the cause of "Ambiguous package name" popups) and fixes them in one click.
+
 ## Play with friends
 
 Open the Play with Friends tab.
@@ -36,7 +40,9 @@ Open the Play with Friends tab.
 - Host: pick a map, hit Host this map, hit Find my IP, then Copy code and send it to your friends. Hit "Open my router port automatically" once so they can reach you.
 - Friends: paste the code and hit Join. The plugin installs the map first if they don't have it.
 
-If the router won't open the port by itself, forward UDP port 7777 to the host PC, or have everyone use a free virtual LAN app like Radmin VPN or ZeroTier.
+Easiest way with no router work: everyone installs a free virtual LAN app (Radmin VPN, ZeroTier, Tailscale, or Hamachi) and joins the same network in it. The plugin finds your address in that app and you hit "Use this address".
+
+If you'd rather not, hit "Open my router port automatically", or forward UDP port 7777 to the host PC.
 
 ## Notes
 

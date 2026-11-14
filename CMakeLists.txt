@@ -17,7 +17,7 @@ add_library(WorkshopMaps SHARED
 )
 
 target_include_directories(WorkshopMaps PRIVATE src "${BAKKESMOD_SDK}/include")
-target_link_libraries(WorkshopMaps PRIVATE "${BAKKESMOD_SDK}/lib/pluginsdk.lib" shell32 ole32 oleaut32 ws2_32)
+target_link_libraries(WorkshopMaps PRIVATE "${BAKKESMOD_SDK}/lib/pluginsdk.lib" shell32 ole32 oleaut32 ws2_32 iphlpapi)
 target_compile_definitions(WorkshopMaps PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 target_compile_options(WorkshopMaps PRIVATE /utf-8 /MP)
 set_target_properties(WorkshopMaps PROPERTIES OUTPUT_NAME "WorkshopMaps2")
