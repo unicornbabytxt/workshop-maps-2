@@ -5,6 +5,7 @@
 #include "bakkesmod/plugin/PluginSettingsWindow.h"
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -103,6 +104,7 @@ private:
 	std::atomic<int> texturesMissing_{ 0 };
 	std::atomic<bool> texturesBusy_{ false };
 	double lastTexturePoll_ = 0;
+	std::chrono::steady_clock::time_point lastUpdateCheck_{};
 	std::vector<std::filesystem::path> triedTextureZips_;
 	std::atomic<float> progress_{ 0.f };
 };
