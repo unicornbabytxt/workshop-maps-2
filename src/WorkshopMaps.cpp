@@ -23,7 +23,7 @@
 
 namespace fs = std::filesystem;
 
-BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.1.1", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.1.2", PLUGINTYPE_FREEPLAY)
 
 namespace
 {
@@ -1367,18 +1367,18 @@ void WorkshopMaps::RenderBody()
 	}
 	ImGui::EndChild();
 
-	// ---- Extras ----
-	if (ImGui::CollapsingHeader("Extras"))
+	// ---- Known troublemaker ----
+	// True Ball Height Indicator (a 2020 plugin) shows up at the top of crash reports on the current game.
 	{
-		ImGui::TextWrapped("True Ball Height Indicator fixes the ball's height ring on maps where the floor isn't at ground level, "
-			"like the Dribble Challenge maps. It's a separate plugin from the BakkesMod team.");
-		std::error_code extrasEc;
-		if (fs::exists(gameWrapper->GetBakkesModPath() / "plugins" / "TrueBallHeightIndicator.dll", extrasEc))
-			ImGui::TextColored(kGood, "True Ball Height Indicator is installed. Turn it on or off under F2 > Plugins.");
-		else if (ImGui::Button("Install True Ball Height Indicator"))
+		std::error_code tbhEc;
+		if (fs::exists(gameWrapper->GetBakkesModPath() / "plugins" / "TrueBallHeightIndicator.dll", tbhEc))
 		{
-			gameWrapper->Execute([this](GameWrapper*) { cvarManager->executeCommand("bpm_install 169"); });
-			SetStatus("Asked BakkesMod to install True Ball Height Indicator. Look for it under F2 > Plugins.");
+			ImGui::TextColored(kWarn, "Maps crashing? The True Ball Height Indicator plugin is a known cause on the current game.");
+			if (ImGui::SmallButton("Turn it off for this session"))
+			{
+				gameWrapper->Execute([this](GameWrapper*) { cvarManager->executeCommand("plugin unload trueballheightindicator"); });
+				SetStatus("Turned off True Ball Height Indicator until the game restarts. To keep it off, untick it in F2 > Plugins > Plugin Manager.");
+			}
 		}
 	}
 
