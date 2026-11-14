@@ -58,6 +58,11 @@ private:
 	void LoadMap(const MapEntry& map);
 	void EnsureAutoload();
 	std::filesystem::path BackupDir();
+	void CheckTextures();
+	void InstallTexturesFromZip(const std::filesystem::path& zip);
+	void PollTextureZip();
+	int FixTextureDuplicates();
+	void RefreshVlans();
 	bool MoveToBackup(const std::filesystem::path& what);
 	int CleanDuplicates();
 	void RenderFriendsTab(const std::vector<MapEntry>& maps, bool busy);
@@ -89,9 +94,15 @@ private:
 	std::mutex mutex_;                 // guards everything below
 	std::vector<MapEntry> maps_;
 	std::vector<ZipEntry> zips_;
+	std::vector<std::filesystem::path> textureDupes_;           // texture files that exist outside the main game folder
+	std::vector<std::pair<std::string, std::string>> vlans_;    // virtual LAN app name, this PC's address in it
 	std::string status_;
 	bool statusIsError_ = false;
 
 	std::atomic<bool> busy_{ false };
+	std::atomic<int> texturesMissing_{ 0 };
+	std::atomic<bool> texturesBusy_{ false };
+	double lastTexturePoll_ = 0;
+	std::vector<std::filesystem::path> triedTextureZips_;
 	std::atomic<float> progress_{ 0.f };
 };
