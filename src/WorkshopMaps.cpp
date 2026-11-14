@@ -28,6 +28,7 @@ namespace
 	const char* kSite = "https://bakkesplugins.com/maps";
 	const char* kCdn = "https://cdn.bakkesplugins.com/";
 	const int kPort = 7777;
+	const char* kSupportUrl = "https://buymeacoffee.com/unicornbaby.txt";
 #ifndef WM_BUILD
 #define WM_BUILD 0
 #endif
@@ -1129,5 +1130,11 @@ void WorkshopMaps::RenderBody()
 	}
 	ImGui::EndTabBar();
 
+	ImGui::Spacing();
 	ImGui::TextDisabled("Workshop Maps 2.0  build %d", WM_BUILD);
+	ImGui::SameLine(ImGui::GetWindowContentRegionWidth() - 150);
+	if (ImGui::SmallButton("Support the plugin"))
+		ShellExecuteA(nullptr, "open", kSupportUrl, nullptr, nullptr, SW_SHOWNORMAL);
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Free forever. If it made your life easier, tips are appreciated.");
 }
