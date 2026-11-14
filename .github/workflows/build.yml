@@ -34,8 +34,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Zip laid out the way BakkesMod installs plugins: plugins/WorkshopMaps2.dll
+          New-Item -ItemType Directory -Force pkg/plugins | Out-Null
+          Copy-Item build/Release/WorkshopMaps2.dll pkg/plugins/
+          Compress-Archive -Path pkg/plugins -DestinationPath WorkshopMaps2.zip -Force
           gh release delete latest --yes --cleanup-tag 2>$null
-          gh release create latest build/Release/WorkshopMaps2.dll --title "Workshop Maps 2.0 (build ${{ github.run_number }})" --notes "Download WorkshopMaps2.dll and follow the README to install."
+          gh release create latest build/Release/WorkshopMaps2.dll WorkshopMaps2.zip --title "Workshop Maps 2.0 (build ${{ github.run_number }})" --notes "Download WorkshopMaps2.dll and follow the README to install."
           exit 0
 
       # The plugin's Update button reads these two files from the dist branch.

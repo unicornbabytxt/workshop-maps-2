@@ -43,3 +43,7 @@ If the router won't open the port by itself, forward UDP port 7777 to the host P
 - Two copies of the same map in the maps folder can crash the game. The plugin flags duplicates and has a one click cleanup that moves the extra copies to a backup folder.
 - Workshop maps only work with anti-cheat disabled, which means offline/private play. That is how Rocket League is set up, not something this plugin changes.
 - Some maps need the workshop textures pack in `CookedPCConsole` or they look blank/pink.
+
+## Support
+
+The plugin is free and always will be. If it made your life easier and you want to throw a couple bucks my way: https://buymeacoffee.com/unicornbaby.txt
