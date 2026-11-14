@@ -680,6 +680,10 @@ void WorkshopMaps::LoadMap(const MapEntry& map)
 void WorkshopMaps::CheckForUpdate()
 {
 	if (WM_BUILD <= 0) return; // local test build
+	// Runs at game start and every time the window opens, but no more than once a minute.
+	const auto now = std::chrono::steady_clock::now();
+	if (lastUpdateCheck_.time_since_epoch().count() != 0 && now - lastUpdateCheck_ < std::chrono::seconds(60)) return;
+	lastUpdateCheck_ = now;
 	CurlRequest req;
 	req.url = std::string(kUpdateBase) + "version.txt";
 	req.verb = "GET";
@@ -1175,6 +1179,7 @@ void WorkshopMaps::OnOpen()
 	CheckTextures();
 	RefreshVlans();
 	triedTextureZips_.clear();
+	CheckForUpdate();
 }
 
 void WorkshopMaps::RenderSettings()
