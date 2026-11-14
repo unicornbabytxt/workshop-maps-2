@@ -1,0 +1,45 @@
+# Workshop Maps 2.0 (BakkesMod plugin)
+
+Install and play Rocket League workshop maps without the console. Type a map number, hit Install, hit Play.
+
+## Install the plugin (one time)
+
+1. Download `WorkshopMaps2.dll` from the Releases page of this repo.
+2. In BakkesMod: File > Open BakkesMod folder. Drop the dll in the `plugins` folder.
+3. Start Rocket League **with anti-cheat disabled** (Epic: the "..." next to the game > Run without Easy Anti-Cheat).
+4. Press F6 and type: `plugin load workshopmaps2`. You only do this once, after that it loads by itself.
+
+## Use it
+
+- Press F2 > Plugins > Workshop Maps 2.0 > Open Workshop Maps. Or bind a key to `togglemenu workshopmaps2`.
+- Find a map at https://bakkesplugins.com/maps. The number at the end of the page address is the map number.
+- Type the number (or paste the whole link), hit Install, then hit Play next to the map.
+
+Maps go in `<Rocket League>\TAGame\CookedPCConsole\mods` by default. Anything already in there shows up in the list. You can change the folder under Settings.
+
+If the number install can't reach the site, download the zip in your browser and use "Install from a zip in my Downloads folder" in the plugin.
+
+Console shortcuts: `wm_install 298`, `wm_open`.
+
+## Free play mode
+
+Tick "Free play mode" above the map list and maps load as Free Play, with a ball and your normal free play bindings.
+
+## Updates
+
+When a newer build is out, an "Update now" button shows at the top of the plugin. Hit it, then restart Rocket League.
+
+## Play with friends
+
+Open the Play with Friends tab.
+
+- Host: pick a map, hit Host this map, hit Find my IP, then Copy code and send it to your friends. Hit "Open my router port automatically" once so they can reach you.
+- Friends: paste the code and hit Join. The plugin installs the map first if they don't have it.
+
+If the router won't open the port by itself, forward UDP port 7777 to the host PC, or have everyone use a free virtual LAN app like Radmin VPN or ZeroTier.
+
+## Notes
+
+- Two copies of the same map in the maps folder can crash the game. The plugin flags duplicates and has a one click cleanup that moves the extra copies to a backup folder.
+- Workshop maps only work with anti-cheat disabled, which means offline/private play. That is how Rocket League is set up, not something this plugin changes.
+- Some maps need the workshop textures pack in `CookedPCConsole` or they look blank/pink.
