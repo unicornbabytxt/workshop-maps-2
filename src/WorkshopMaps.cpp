@@ -23,7 +23,7 @@
 
 namespace fs = std::filesystem;
 
-BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.1.0", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.1.1", PLUGINTYPE_FREEPLAY)
 
 namespace
 {
@@ -94,8 +94,8 @@ namespace
 		color(ImGuiCol_HeaderHovered, 0.18f, 0.20f, 0.25f);
 		color(ImGuiCol_HeaderActive, 0.20f, 0.23f, 0.29f);
 		color(ImGuiCol_Tab, 0.10f, 0.11f, 0.14f);
-		color(ImGuiCol_TabHovered, kAccentHover.x, kAccentHover.y, kAccentHover.z);
-		color(ImGuiCol_TabActive, kAccent.x, kAccent.y, kAccent.z);
+		color(ImGuiCol_TabHovered, 0.17f, 0.53f, 0.97f);
+		color(ImGuiCol_TabActive, 0.10f, 0.44f, 0.90f);
 		color(ImGuiCol_CheckMark, kAccent.x, kAccent.y, kAccent.z);
 		color(ImGuiCol_SliderGrab, kAccent.x, kAccent.y, kAccent.z);
 		color(ImGuiCol_SliderGrabActive, kAccentHover.x, kAccentHover.y, kAccentHover.z);
@@ -113,13 +113,43 @@ namespace
 	// The main action button on a screen, in the accent color.
 	bool PrimaryButton(const char* label)
 	{
-		ImGui::PushStyleColor(ImGuiCol_Button, kAccent);
-		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kAccentHover);
-		ImGui::PushStyleColor(ImGuiCol_ButtonActive, kAccentDown);
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.02f, 0.05f, 0.10f, 1.f));
+		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.10f, 0.44f, 0.90f, 1.f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.17f, 0.53f, 0.97f, 1.f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.07f, 0.37f, 0.80f, 1.f));
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, 1.f));
 		bool pressed = ImGui::Button(label);
 		ImGui::PopStyleColor(4);
 		return pressed;
+	}
+
+	// An on/off switch drawn as a button, so it's obvious what state it's in.
+	bool ToggleButton(const char* name, bool on)
+	{
+		const std::string label = std::string(name) + (on ? ":  ON" : ":  OFF");
+		if (on) return PrimaryButton(label.c_str());
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.78f, 0.84f, 1.f));
+		bool pressed = ImGui::Button(label.c_str());
+		ImGui::PopStyleColor();
+		return pressed;
+	}
+
+	// Status text that wraps instead of running off the side of the window.
+	void StatusLine(const std::string& text, bool isError)
+	{
+		if (text.empty()) return;
+		ImGui::PushStyleColor(ImGuiCol_Text, isError ? kBad : kGood);
+		ImGui::TextWrapped("%s", text.c_str());
+		ImGui::PopStyleColor();
+	}
+
+	// Folder names like "Air_Dribble_Hoops" read better as "Air Dribble Hoops".
+	std::string PrettyName(std::string s)
+	{
+		std::replace(s.begin(), s.end(), '_', ' ');
+		for (size_t pos; (pos = s.find("  ")) != std::string::npos;) s.erase(pos, 1);
+		while (!s.empty() && s.front() == ' ') s.erase(s.begin());
+		while (!s.empty() && s.back() == ' ') s.pop_back();
+		return s;
 	}
 
 	void SectionTitle(const char* text)
@@ -451,7 +481,7 @@ void WorkshopMaps::RefreshMaps()
 			fs::path file = FindMapFile(it->path());
 			if (file.empty()) continue;
 			MapEntry entry;
-			entry.name = it->path().filename().string();
+			entry.name = PrettyName(it->path().filename().string());
 			entry.file = file;
 			entry.folder = it->path();
 			std::ifstream nameFile(it->path() / "mapname.txt");
@@ -465,7 +495,7 @@ void WorkshopMaps::RefreshMaps()
 		else if (it->is_regular_file(ec) && IsMapFile(it->path()))
 		{
 			MapEntry entry;
-			entry.name = it->path().stem().string();
+			entry.name = PrettyName(it->path().stem().string());
 			entry.file = it->path();
 			found.push_back(entry);
 		}
@@ -1160,7 +1190,7 @@ void WorkshopMaps::RenderSettings()
 void WorkshopMaps::Render()
 {
 	PushTheme();
-	ImGui::SetNextWindowSize(ImVec2(620, 700), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(640, 760), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin(GetMenuTitle().c_str(), &windowOpen_, ImGuiWindowFlags_NoCollapse))
 		RenderBody();
 	ImGui::End();
@@ -1252,8 +1282,7 @@ void WorkshopMaps::RenderBody()
 	ImGui::TextDisabled("The number is the end of the map's page address: bakkesplugins.com/maps/298");
 
 	if (busy) ImGui::ProgressBar(progress_.load(), ImVec2(-1, 0));
-	if (!status.empty())
-		ImGui::TextColored(statusIsError ? kBad : kGood, "%s", status.c_str());
+	StatusLine(status, statusIsError);
 
 	// ---- My maps ----
 	SectionTitle("MY MAPS");
@@ -1277,20 +1306,24 @@ void WorkshopMaps::RenderBody()
 		if (ImGui::Button("Clean up duplicates (keeps the newest copy)"))
 		{
 			int moved = CleanDuplicates();
-			SetStatus("Moved " + std::to_string(moved) + " duplicate copies to " + BackupDir().string() + ". Restart Rocket League before playing.");
+			SetStatus("Moved " + std::to_string(moved) + (moved == 1 ? " duplicate copy" : " duplicate copies") + " to the backup folder. Restart Rocket League before playing.");
 		}
 	}
 
 	const std::string filter = Lower(filterBuf_);
-	if (ImGui::Checkbox("Free play mode", &freeplayMode_))
+	if (ToggleButton("Free play mode", freeplayMode_))
 	{
+		freeplayMode_ = !freeplayMode_;
 		cvarManager->getCvar("wm_freeplay").setValue(freeplayMode_ ? 1 : 0);
 		cvarManager->executeCommand("writeconfig", false);
 	}
 	ImGui::SameLine();
-	ImGui::TextDisabled("Loads the map as Free Play: ball included, your normal free play bindings work.");
+	ImGui::TextDisabled(freeplayMode_ ? "Maps load as Free Play, with a ball and your free play bindings."
+	                                  : "Click to load maps as Free Play, with a ball and your free play bindings.");
 
-	ImGui::BeginChild("##maps", ImVec2(0, 300), true);
+	// The list takes whatever room is left, so the sections and footer below it stay on screen.
+	const float listHeight = (std::max)(180.f, ImGui::GetContentRegionAvail().y - 185.f);
+	ImGui::BeginChild("##maps", ImVec2(0, listHeight), true);
 	if (maps.empty())
 		ImGui::TextWrapped("No maps yet. Type a map number above and hit Install.");
 	for (int i = 0; i < (int)maps.size(); ++i)
@@ -1399,8 +1432,7 @@ void WorkshopMaps::RenderBody()
 	if (ImGui::BeginTabItem("Play with Friends"))
 	{
 		RenderFriendsTab(maps, busy);
-		if (!status.empty())
-			ImGui::TextColored(statusIsError ? kBad : kGood, "%s", status.c_str());
+		StatusLine(status, statusIsError);
 		ImGui::EndTabItem();
 	}
 	ImGui::EndTabBar();
