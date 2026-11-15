@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -64,6 +65,7 @@ private:
 	void PollTextureZip();
 	int FixTextureDuplicates();
 	void RefreshVlans();
+	int MatchReadyState(const std::filesystem::path& mapFile);
 	bool MoveToBackup(const std::filesystem::path& what);
 	int CleanDuplicates();
 	void RenderFriendsTab(const std::vector<MapEntry>& maps, bool busy);
@@ -96,6 +98,7 @@ private:
 	std::vector<MapEntry> maps_;
 	std::vector<ZipEntry> zips_;
 	std::vector<std::filesystem::path> textureDupes_;           // texture files that exist outside the main game folder
+	std::map<std::string, int> matchReady_;                     // map file -> 0 checking, 1 built for matches, 2 not
 	std::vector<std::pair<std::string, std::string>> vlans_;    // virtual LAN app name, this PC's address in it
 	std::string status_;
 	bool statusIsError_ = false;
