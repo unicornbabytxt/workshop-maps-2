@@ -1324,7 +1324,18 @@ void WorkshopMaps::RenderBody()
 	}
 	ImGui::SameLine();
 	ImGui::TextDisabled(freeplayMode_ ? "Maps load as Free Play, with a ball and your free play bindings."
-	                                  : "Click to load maps as Free Play, with a ball and your free play bindings.");
+	                                  : "Loads maps as Free Play, with a ball and your free play bindings.");
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Free Play takes over the reset shot button, so maps that use it for their own games can't start them.");
+	if (freeplayMode_)
+	{
+		ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
+		ImGui::TextWrapped("Heads up: this doesn't work on every map. It's best on maps that play like a normal arena. "
+			"If a map has its own mini games or checkpoints and reset shot does nothing, turn this off and load it again.");
+		ImGui::PopStyleColor();
+	}
+	else
+		ImGui::TextDisabled("Doesn't work on every map. Best on maps that play like a normal arena.");
 
 	// The list takes whatever room is left, so the sections and footer below it stay on screen.
 	const float listHeight = (std::max)(180.f, ImGui::GetContentRegionAvail().y - 185.f);
