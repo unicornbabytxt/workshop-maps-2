@@ -23,7 +23,7 @@
 
 namespace fs = std::filesystem;
 
-BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.1.2", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.1.3", PLUGINTYPE_FREEPLAY)
 
 namespace
 {
@@ -327,6 +327,28 @@ namespace
 		return DefaultMapsDir().parent_path();
 	}
 
+	// True if the file contains the given text anywhere. Reads in chunks so a 600 MB map doesn't fill memory.
+	bool FileContains(const fs::path& file, const std::string& needle)
+	{
+		std::ifstream in(file, std::ios::binary);
+		if (!in || needle.empty()) return false;
+		const size_t chunk = 4 * 1024 * 1024;
+		std::vector<char> buffer(chunk + needle.size());
+		size_t carried = 0;
+		while (in)
+		{
+			in.read(buffer.data() + carried, (std::streamsize)chunk);
+			const size_t got = (size_t)in.gcount();
+			if (got == 0) break;
+			const size_t have = carried + got;
+			if (std::search(buffer.begin(), buffer.begin() + have, needle.begin(), needle.end()) != buffer.begin() + have)
+				return true;
+			carried = (std::min)(needle.size() - 1, have);
+			std::copy(buffer.begin() + (have - carried), buffer.begin() + have, buffer.begin());
+		}
+		return false;
+	}
+
 	bool IsTextureFile(const fs::path& p)
 	{
 		const std::string name = Lower(p.filename().string());
@@ -478,6 +500,7 @@ void WorkshopMaps::RefreshMaps()
 	{
 		if (it->is_directory(ec))
 		{
+			if (Lower(it->path().filename().string()) == "acplugin") continue; // AlphaConsole's own files, not a map
 			fs::path file = FindMapFile(it->path());
 			if (file.empty()) continue;
 			MapEntry entry;
@@ -907,6 +930,26 @@ void WorkshopMaps::RefreshVlans()
 	vlans_ = std::move(found);
 }
 
+// Hosting runs the map as a real match, and match mode needs the map's center-field marker for kickoffs,
+// ball spawns and goal indicators. Maps built only for solo practice often leave it out, and the game
+// crashes a few seconds into a hosted match on those. Returns 0 while checking, 1 if the map has it, 2 if not.
+int WorkshopMaps::MatchReadyState(const fs::path& mapFile)
+{
+	const std::string key = mapFile.string();
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		auto it = matchReady_.find(key);
+		if (it != matchReady_.end()) return it->second;
+		matchReady_[key] = 0;
+	}
+	std::thread([this, mapFile, key]() {
+		const bool ready = FileContains(mapFile, "Pylon_Soccar_TA");
+		std::lock_guard<std::mutex> lock(mutex_);
+		matchReady_[key] = ready ? 1 : 2;
+	}).detach();
+	return 0;
+}
+
 // Starts a real match on the map that friends can connect to. Same approach Rocket Plugin uses.
 void WorkshopMaps::HostGame(const MapEntry& map)
 {
@@ -1081,9 +1124,23 @@ void WorkshopMaps::RenderFriendsTab(const std::vector<MapEntry>& maps, bool busy
 		ImGui::Combo("Game mode", &hostMode_, kModeNames, IM_ARRAYSIZE(kModeNames));
 		ImGui::SliderInt("Max players", &hostPlayers_, 2, 8);
 		ImGui::PopItemWidth();
-		if (PrimaryButton("Host this map")) HostGame(maps[hostMap_]);
-		ImGui::SameLine();
-		ImGui::TextDisabled("You pick teams in game like a normal private match.");
+		const int matchReady = MatchReadyState(maps[hostMap_].file);
+		if (matchReady == 0)
+			ImGui::TextDisabled("Checking if this map can be hosted...");
+		else if (matchReady == 2)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, kWarn);
+			ImGui::TextWrapped("This map isn't built for matches. It has no kickoff spot for the game to use, "
+				"and hosting it will probably crash Rocket League. Pick a different map to play with friends.");
+			ImGui::PopStyleColor();
+			if (ImGui::Button("Host anyway")) HostGame(maps[hostMap_]);
+		}
+		else
+		{
+			if (PrimaryButton("Host this map")) HostGame(maps[hostMap_]);
+			ImGui::SameLine();
+			ImGui::TextDisabled("You pick teams in game like a normal private match.");
+		}
 
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Your join code");
