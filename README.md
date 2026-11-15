@@ -23,7 +23,9 @@ Console shortcuts: `wm_install 298`, `wm_open`.
 
 ## Free play mode
 
-Tick "Free play mode" above the map list and maps load as Free Play, with a ball and your normal free play bindings.
+Turn on "Free play mode" above the map list and maps load as Free Play, with a ball and your normal free play bindings.
+
+It doesn't work on every map. It's best on maps that play like a normal arena. Maps with their own mini games or checkpoints use the reset shot button themselves, and Free Play takes that button over, so turn it off for those.
 
 ## Updates
 
