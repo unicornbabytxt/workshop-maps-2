@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cwctype>
 #include <fstream>
 
@@ -23,7 +24,7 @@
 
 namespace fs = std::filesystem;
 
-BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.1.3", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.2.0", PLUGINTYPE_FREEPLAY)
 
 namespace
 {
@@ -373,6 +374,9 @@ void WorkshopMaps::onLoad()
 
 	cvarManager->registerCvar("wm_freeplay", "0", "Load workshop maps in free play mode");
 	freeplayMode_ = cvarManager->getCvar("wm_freeplay").getBoolValue();
+	cvarManager->registerCvar("wm_ballring", "1", "Draw a height ring under the ball on maps with raised floors");
+	ballRing_ = cvarManager->getCvar("wm_ballring").getBoolValue();
+	gameWrapper->RegisterDrawable([this](CanvasWrapper canvas) { DrawBallRing(canvas); });
 
 	// Clean up the leftover file from the last self-update, then see if a newer build exists.
 	std::error_code ec;
@@ -1081,6 +1085,77 @@ void WorkshopMaps::TryOpenPort()
 	}).detach();
 }
 
+// Ball height ring for maps with raised floors.
+//
+// The game's own ring under the ball assumes the floor is at ground level, so on maps where you play on a
+// raised platform it sits in the wrong place. This draws a ring at the height of the surface the car last
+// drove on. It only uses the normal plugin toolkit, with no reading of game memory, so it can't take the
+// game down. The trade-off: if the ball is over a different level than the one you drove on, the ring is off.
+// Idea credit: True Ball Height Indicator by CinderBlock.
+void WorkshopMaps::DrawBallRing(CanvasWrapper canvas)
+{
+	if (!ballRing_) return;
+	ServerWrapper server = gameWrapper->GetGameEventAsServer(); // only exists offline or when hosting
+	if (server.IsNull()) return;
+
+	// A new map means the old floor height no longer applies.
+	const std::string map = gameWrapper->GetCurrentMap();
+	if (map != ringMap_)
+	{
+		ringMap_ = map;
+		floorKnown_ = false;
+	}
+
+	// Learn the floor height whenever the car is sitting flat on a surface (not a wall or a ramp).
+	CarWrapper car = gameWrapper->GetLocalCar();
+	if (!car.IsNull() && car.IsOnGround() && !car.IsOnWall())
+	{
+		const Rotator rot = car.GetRotation();
+		if (std::abs(rot.Pitch) < 3000 && std::abs(rot.Roll) < 3000)
+		{
+			floorZ_ = car.GetLocation().Z - 17.f; // a car resting on the floor sits about 17 units up
+			floorKnown_ = true;
+		}
+	}
+	// At normal ground level the game's own ring is already right, so stay out of the way.
+	if (!floorKnown_ || std::fabs(floorZ_) < 30.f) return;
+
+	BallWrapper ball = server.GetBall();
+	if (ball.IsNull()) return;
+	const Vector ballLoc = ball.GetLocation();
+	float radius = ball.GetRadius();
+	if (radius < 10.f) radius = 92.f;
+	const float gap = ballLoc.Z - radius - floorZ_;
+	if (gap < 15.f) return; // ball is on (or under) this floor, nothing useful to show
+
+	CameraWrapper camera = gameWrapper->GetCamera();
+	if (camera.IsNull()) return;
+	const Vector camLoc = camera.GetLocation();
+	const Vector forward = RotatorToVector(camera.GetRotation());
+
+	// Two rings on the floor under the ball, drawn as short line segments. Points behind the camera are skipped.
+	canvas.SetColor((char)60, (char)170, (char)255, (char)235);
+	const int segments = 40;
+	for (int ring = 0; ring < 2; ++ring)
+	{
+		const float r = ring == 0 ? radius : radius * 0.45f;
+		Vector2F previous{ 0.f, 0.f };
+		bool previousVisible = false;
+		for (int i = 0; i <= segments; ++i)
+		{
+			const float angle = 6.2831853f * (float)i / (float)segments;
+			const Vector point(ballLoc.X + std::cos(angle) * r, ballLoc.Y + std::sin(angle) * r, floorZ_ + 3.f);
+			const float ahead = (point.X - camLoc.X) * forward.X + (point.Y - camLoc.Y) * forward.Y + (point.Z - camLoc.Z) * forward.Z;
+			const bool visible = ahead > 50.f;
+			Vector2F screen{ 0.f, 0.f };
+			if (visible) screen = canvas.ProjectF(point);
+			if (visible && previousVisible) canvas.DrawLine(previous, screen, ring == 0 ? 3.f : 2.f);
+			previous = screen;
+			previousVisible = visible;
+		}
+	}
+}
+
 void WorkshopMaps::SpawnBall()
 {
 	gameWrapper->Execute([this](GameWrapper* gw) {
@@ -1393,6 +1468,15 @@ void WorkshopMaps::RenderBody()
 	}
 	else
 		ImGui::TextDisabled("Doesn't work on every map. Best on maps that play like a normal arena.");
+
+	if (ToggleButton("Ball height ring", ballRing_))
+	{
+		ballRing_ = !ballRing_;
+		cvarManager->getCvar("wm_ballring").setValue(ballRing_ ? 1 : 0);
+		cvarManager->executeCommand("writeconfig", false);
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled("Blue ring under the ball on raised floors, at the height you're driving on.");
 
 	// The list takes whatever room is left, so the sections and footer below it stay on screen.
 	const float listHeight = (std::max)(180.f, ImGui::GetContentRegionAvail().y - 185.f);

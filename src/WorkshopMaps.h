@@ -74,6 +74,7 @@ private:
 	void FindPublicIp();
 	void TryOpenPort();
 	void SpawnBall();
+	void DrawBallRing(CanvasWrapper canvas);
 	void RenderBody();
 	void CheckForUpdate();
 	void InstallUpdate();
@@ -88,6 +89,10 @@ private:
 	int hostMode_ = 0;
 	int hostPlayers_ = 8;
 	bool freeplayMode_ = false;
+	bool ballRing_ = true;
+	bool floorKnown_ = false;          // have we seen the car driving on a floor in this map yet
+	float floorZ_ = 0.f;               // height of the surface the car last drove on
+	std::string ringMap_;              // map the floor height belongs to
 	std::atomic<int> latestBuild_{ 0 };
 	std::atomic<bool> updating_{ false };
 	std::atomic<bool> updated_{ false };
