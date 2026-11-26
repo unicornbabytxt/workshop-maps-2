@@ -27,6 +27,14 @@ Turn on "Free play mode" above the map list and maps load as Free Play, with a b
 
 It doesn't work on every map. It's best on maps that play like a normal arena. Maps with their own mini games or checkpoints use the reset shot button themselves, and Free Play takes that button over, so turn it off for those.
 
+## Crash helper
+
+If Rocket League crashed last time, the plugin reads the game's own log and tells you in plain words what it crashed in: a specific plugin, BakkesMod, or the game and map. If it was a plugin, one button turns it off. Nothing leaves your PC.
+
+## Favorites
+
+Hit Favorite on a map to pin it to the top of the list. Under your favorites, the maps you played most recently come first.
+
 ## Ball height ring
 
 On maps where you play on a raised floor, the game's own ring under the ball sits in the wrong spot. With "Ball height ring" on, the plugin draws a blue ring under the ball at the height of the surface your car is driving on. It learns the height as you drive, so it shows up after your wheels have touched the floor. If the ball is over a different level than you, the ring will be off.

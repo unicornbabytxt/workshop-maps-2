@@ -5,6 +5,7 @@
 #include <iphlpapi.h>
 #include <windows.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <objbase.h>
 #include <oleauto.h>
 #include <natupnp.h>
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <ctime>
 #include <cwctype>
 #include <fstream>
 
@@ -24,7 +26,7 @@
 
 namespace fs = std::filesystem;
 
-BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.2.0", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.3.0", PLUGINTYPE_FREEPLAY)
 
 namespace
 {
@@ -39,6 +41,8 @@ namespace
 		"Engine_MI_Shaders.upk", "EngineBuildings.upk", "EngineDebugMaterials.upk", "EngineMaterials.upk",
 		"EngineResources.upk", "EngineVolumetrics.upk", "MapTemplateIndex.upk", "MapTemplates.upk",
 		"mods.upk", "NodeBuddies.upk" };
+	const char* kIssuesUrl = "https://github.com/unicornbabytxt/workshop-maps-2/issues";
+	const char* kPluginDownloadUrl = "https://github.com/unicornbabytxt/workshop-maps-2/releases/latest/download/WorkshopMaps2.dll";
 	const char* kSupportUrl = "https://buymeacoffee.com/unicornbaby.txt";
 #ifndef WM_BUILD
 #define WM_BUILD 0
@@ -387,6 +391,8 @@ void WorkshopMaps::onLoad()
 		"Spawn a ball above your car (host or solo only)", PERMISSION_ALL);
 
 	EnsureAutoload();
+	LoadState();
+	CheckLastCrash();
 	RefreshMaps();
 	CheckTextures();
 }
@@ -689,6 +695,7 @@ bool WorkshopMaps::InstallZip(const fs::path& zip, const std::string& folderName
 
 void WorkshopMaps::LoadMap(const MapEntry& map)
 {
+	MarkPlayed(map);
 	if (freeplayMode_)
 	{
 		// Same game mode the real Free Play uses, so the ball and your own free play bindings come with it.
@@ -957,6 +964,7 @@ int WorkshopMaps::MatchReadyState(const fs::path& mapFile)
 // Starts a real match on the map that friends can connect to. Same approach Rocket Plugin uses.
 void WorkshopMaps::HostGame(const MapEntry& map)
 {
+	MarkPlayed(map);
 	std::string arena = map.file.string();
 	std::replace(arena.begin(), arena.end(), '/', '\\');
 	int players = std::clamp(hostPlayers_, 2, 8) & ~1;
@@ -1083,6 +1091,124 @@ void WorkshopMaps::TryOpenPort()
 		if (ok) SetStatus("Router port 7777 is open. Friends should be able to join with your code.");
 		else SetStatus(failText, true);
 	}).detach();
+}
+
+// Favorites, last played times, and the last dismissed crash are kept in one small text file.
+fs::path WorkshopMaps::StateFile()
+{
+	return gameWrapper->GetDataFolder() / "workshopmaps" / "state.txt";
+}
+
+void WorkshopMaps::LoadState()
+{
+	std::ifstream in(StateFile());
+	std::string line;
+	while (std::getline(in, line))
+	{
+		const size_t tab = line.find('\t');
+		if (tab == std::string::npos) continue;
+		const std::string kind = line.substr(0, tab);
+		const std::string rest = line.substr(tab + 1);
+		if (kind == "fav") favorites_.insert(rest);
+		else if (kind == "crash") dismissedCrash_ = rest;
+		else if (kind == "played")
+		{
+			const size_t tab2 = rest.find('\t');
+			if (tab2 == std::string::npos) continue;
+			try { lastPlayed_[rest.substr(tab2 + 1)] = std::stoll(rest.substr(0, tab2)); } catch (...) {}
+		}
+	}
+}
+
+void WorkshopMaps::SaveState()
+{
+	std::error_code ec;
+	fs::create_directories(StateFile().parent_path(), ec);
+	std::ofstream out(StateFile(), std::ios::trunc);
+	if (!out) return;
+	for (const std::string& f : favorites_) out << "fav\t" << f << "\n";
+	for (const auto& p : lastPlayed_) out << "played\t" << p.second << "\t" << p.first << "\n";
+	if (!dismissedCrash_.empty()) out << "crash\t" << dismissedCrash_ << "\n";
+}
+
+void WorkshopMaps::MarkPlayed(const MapEntry& map)
+{
+	lastPlayed_[map.file.string()] = (long long)std::time(nullptr);
+	SaveState();
+}
+
+// Crash helper. Rocket League writes down which file it was running when it died. This reads the log from
+// the previous session and turns that into plain words, so people know which plugin or map to blame.
+// Everything stays on this PC, nothing is sent anywhere.
+void WorkshopMaps::CheckLastCrash()
+{
+	crashLog_.clear();
+	PWSTR docs = nullptr;
+	if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &docs)) || !docs) return;
+	const fs::path logs = fs::path(docs) / "My Games" / "Rocket League" / "TAGame" / "Logs";
+	CoTaskMemFree(docs);
+
+	// The previous session's log is the newest "Launch-backup-..." file.
+	std::error_code ec;
+	fs::path newest;
+	fs::file_time_type newestTime{};
+	for (fs::directory_iterator it(logs, ec), end; !ec && it != end; it.increment(ec))
+	{
+		const std::string name = it->path().filename().string();
+		if (!it->is_regular_file(ec) || name.rfind("Launch-backup-", 0) != 0) continue;
+		const auto t = it->last_write_time(ec);
+		if (newest.empty() || t > newestTime) { newest = it->path(); newestTime = t; }
+	}
+	if (newest.empty() || newest.filename().string() == dismissedCrash_) return;
+	if (fs::file_size(newest, ec) > 64ull * 1024 * 1024) return;
+
+	std::ifstream in(newest, std::ios::binary);
+	std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+	const size_t fatal = text.find("Fatal error!");
+	if (fatal == std::string::npos) return;
+
+	// Walk the list of files in the crash report, top first, until the blank line that ends it.
+	std::string firstModule, plugin;
+	size_t pos = text.find('\n', fatal);
+	while (pos != std::string::npos)
+	{
+		const size_t lineEnd = text.find('\n', pos + 1);
+		const std::string line = text.substr(pos + 1, lineEnd == std::string::npos ? std::string::npos : lineEnd - pos - 1);
+		pos = lineEnd;
+		const size_t open = line.find("[in ");
+		if (open == std::string::npos)
+		{
+			if (!firstModule.empty()) break;
+			continue;
+		}
+		const size_t close = line.find(']', open);
+		const std::string module = Lower(line.substr(open + 4, close == std::string::npos ? std::string::npos : close - open - 4));
+		if (firstModule.empty()) firstModule = module;
+		if (plugin.empty() && module.find("\\bakkesmod\\plugins\\") != std::string::npos)
+			plugin = fs::path(module).stem().string();
+	}
+	if (firstModule.empty()) return;
+
+	const std::string top = fs::path(firstModule).filename().string();
+	if (!plugin.empty())
+		crashCulprit_ = "the BakkesMod plugin \"" + plugin + "\"";
+	else if (top == "bakkesmod.dll" || top == "pluginsdk.dll")
+		crashCulprit_ = "BakkesMod itself, which usually means an out of date plugin";
+	else
+		crashCulprit_ = "Rocket League itself. That's usually the map: it may not work with the current game, or with the mode it was loaded in";
+	crashPlugin_ = plugin;
+
+	// Which map was loaded at the time.
+	crashMap_.clear();
+	const size_t load = text.rfind("LoadMap: ", fatal);
+	if (load != std::string::npos)
+	{
+		std::string target = text.substr(load + 9, text.find_first_of("?\r\n", load + 9) - load - 9);
+		std::replace(target.begin(), target.end(), '\\', '/');
+		const std::string stem = fs::path(target).stem().string();
+		if (Lower(stem).find("menu_main") == std::string::npos) crashMap_ = PrettyName(stem);
+	}
+	crashLog_ = newest.filename().string();
 }
 
 // Ball height ring for maps with raised floors.
@@ -1240,6 +1366,19 @@ void WorkshopMaps::RenderFriendsTab(const std::vector<MapEntry>& maps, bool busy
 			ImGui::Text("Code: %s", code.c_str());
 			ImGui::SameLine();
 			if (ImGui::Button("Copy code")) ImGui::SetClipboardText(code.c_str());
+			ImGui::SameLine();
+			if (ImGui::Button("Copy invite"))
+			{
+				const std::string invite =
+					"Join my Rocket League workshop map!\n"
+					"1. Get the Workshop Maps 2.0 plugin: " + std::string(kPluginDownloadUrl) + "\n"
+					"   Drop it in your BakkesMod plugins folder (BakkesMod > File > Open BakkesMod folder > plugins).\n"
+					"2. Launch Rocket League with anti-cheat off, press F6 and type: plugin load workshopmaps2\n"
+					"3. F2 > Plugins > Workshop Maps 2.0 > Open, go to Play with Friends, paste this code and hit Join:\n"
+					+ code;
+				ImGui::SetClipboardText(invite.c_str());
+				SetStatus("Invite copied. Paste it to your friend.");
+			}
 		}
 		// ---- Easiest path: a virtual LAN app, no router work ----
 		SectionTitle("NO ROUTER SETUP (EASIEST)");
@@ -1352,6 +1491,14 @@ void WorkshopMaps::RenderBody()
 		statusIsError = statusIsError_;
 	}
 	const bool busy = busy_;
+	std::stable_sort(maps.begin(), maps.end(), [this](const MapEntry& a, const MapEntry& b) {
+		const std::string ka = a.file.string(), kb = b.file.string();
+		const bool fa = favorites_.count(ka) > 0, fb = favorites_.count(kb) > 0;
+		if (fa != fb) return fa;
+		const auto pa = lastPlayed_.find(ka), pb = lastPlayed_.find(kb);
+		const long long ta = pa == lastPlayed_.end() ? 0 : pa->second, tb = pb == lastPlayed_.end() ? 0 : pb->second;
+		return ta > tb;
+	});
 
 	// ---- Update banner ----
 	if (updated_)
@@ -1362,6 +1509,37 @@ void WorkshopMaps::RenderBody()
 		ImGui::SameLine();
 		if (updating_) ImGui::TextDisabled("Updating...");
 		else if (PrimaryButton("Update now")) InstallUpdate();
+	}
+
+	// ---- Crash helper ----
+	if (!crashLog_.empty())
+	{
+		ImGui::PushStyleColor(ImGuiCol_Text, kBad);
+		ImGui::TextWrapped("Rocket League crashed last time%s%s. The crash was in %s.",
+			crashMap_.empty() ? "" : " on ", crashMap_.c_str(), crashCulprit_.c_str());
+		ImGui::PopStyleColor();
+		if (crashPlugin_ == "workshopmaps2")
+		{
+			if (ImGui::SmallButton("That's this plugin. Report it"))
+				ShellExecuteA(nullptr, "open", kIssuesUrl, nullptr, nullptr, SW_SHOWNORMAL);
+			ImGui::SameLine();
+		}
+		else if (!crashPlugin_.empty())
+		{
+			if (ImGui::SmallButton("Turn that plugin off"))
+			{
+				const std::string command = "plugin unload " + crashPlugin_;
+				gameWrapper->Execute([this, command](GameWrapper*) { cvarManager->executeCommand(command); });
+				SetStatus("Turned off " + crashPlugin_ + " until the game restarts. To keep it off, untick it in F2 > Plugins > Plugin Manager.");
+			}
+			ImGui::SameLine();
+		}
+		if (ImGui::SmallButton("Dismiss"))
+		{
+			dismissedCrash_ = crashLog_;
+			crashLog_.clear();
+			SaveState();
+		}
 	}
 
 	// ---- Workshop textures ----
@@ -1496,8 +1674,19 @@ void WorkshopMaps::RenderBody()
 			ImGui::SameLine();
 			ImGui::TextColored(kWarn, "(duplicate)");
 		}
+		const std::string key = map.file.string();
+		const bool favorite = favorites_.count(key) > 0;
+		ImGui::SameLine(ImGui::GetWindowContentRegionWidth() - 195);
+		if (favorite) ImGui::PushStyleColor(ImGuiCol_Text, kAccent);
+		const bool toggled = ImGui::SmallButton(favorite ? "Favorited" : "Favorite");
+		if (favorite) ImGui::PopStyleColor();
+		if (toggled)
+		{
+			if (favorite) favorites_.erase(key); else favorites_.insert(key);
+			SaveState();
+		}
 		ImGui::SameLine(ImGui::GetWindowContentRegionWidth() - 110);
-		if (confirmDelete_ == i)
+		if (confirmDeletePath_ == key)
 		{
 			if (ImGui::SmallButton("Yes, delete"))
 			{
@@ -1507,14 +1696,17 @@ void WorkshopMaps::RenderBody()
 					fs::remove_all(map.folder, ec);
 				else
 					fs::remove(map.file, ec);
-				confirmDelete_ = -1;
+				confirmDeletePath_.clear();
+				favorites_.erase(key);
+				lastPlayed_.erase(key);
+				SaveState();
 				RefreshMaps();
 			}
 			ImGui::SameLine();
-			if (ImGui::SmallButton("No")) confirmDelete_ = -1;
+			if (ImGui::SmallButton("No")) confirmDeletePath_.clear();
 		}
 		else if (ImGui::SmallButton("Delete"))
-			confirmDelete_ = i;
+			confirmDeletePath_ = key;
 		ImGui::PopID();
 	}
 	ImGui::EndChild();

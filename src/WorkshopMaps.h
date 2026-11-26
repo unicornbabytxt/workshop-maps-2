@@ -8,6 +8,7 @@
 #include <chrono>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -75,6 +76,11 @@ private:
 	void TryOpenPort();
 	void SpawnBall();
 	void DrawBallRing(CanvasWrapper canvas);
+	std::filesystem::path StateFile();
+	void LoadState();
+	void SaveState();
+	void MarkPlayed(const MapEntry& map);
+	void CheckLastCrash();
 	void RenderBody();
 	void CheckForUpdate();
 	void InstallUpdate();
@@ -84,7 +90,14 @@ private:
 	std::string inputBuf_;
 	std::string dirBuf_;
 	std::string filterBuf_;
-	int confirmDelete_ = -1;
+	std::string confirmDeletePath_;
+	std::set<std::string> favorites_;                 // map file paths the player starred
+	std::map<std::string, long long> lastPlayed_;     // map file path -> when it was last played
+	std::string dismissedCrash_;                      // crash log the player already dismissed
+	std::string crashLog_;                            // newest crash log with a crash in it, empty if none to show
+	std::string crashCulprit_;                        // plain words: what the crash was in
+	std::string crashPlugin_;                         // plugin name to unload, if a plugin caused it
+	std::string crashMap_;                            // map that was loaded when it crashed
 	int hostMap_ = 0;
 	int hostMode_ = 0;
 	int hostPlayers_ = 8;
