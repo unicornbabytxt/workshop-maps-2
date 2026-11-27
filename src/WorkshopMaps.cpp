@@ -27,7 +27,7 @@
 
 namespace fs = std::filesystem;
 
-BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.4.0", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.5.0", PLUGINTYPE_FREEPLAY)
 
 namespace
 {
@@ -410,6 +410,7 @@ namespace
 			e.downloads = digits(cols[3]) ? std::stoi(cols[3]) : 0;
 			e.updated = cols[4];
 			e.tags = cols[5];
+			if (cols[6].rfind(kCdn, 0) == 0 && cols[6].size() < 300) e.image = cols[6];   // pictures only ever come from the site's own file host
 			e.description = cols[7];
 			e.search = Lower(e.name + " " + e.author + " " + e.tags + " " + e.description);
 			if (e.id > 0) out.push_back(std::move(e));
@@ -1471,6 +1472,65 @@ void WorkshopMaps::SpawnBall()
 	});
 }
 
+// Returns a map's cover picture once it's ready to draw, or nothing while it's still on its way.
+// Pictures download the first time a map is hovered and are kept on disk after that.
+std::shared_ptr<ImageWrapper> WorkshopMaps::GetThumb(const CatalogEntry& entry, bool mayDownload)
+{
+	if (entry.image.empty()) return nullptr;
+	if (auto it = thumbs_.find(entry.id); it != thumbs_.end()) return it->second;
+	if (!mayDownload || thumbDownloading_ == entry.id) return nullptr;
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		if (thumbFailed_.count(entry.id)) return nullptr;
+	}
+
+	const fs::path dir = gameWrapper->GetDataFolder() / "workshopmaps" / "thumbs";
+	const fs::path file = dir / (std::to_string(entry.id) + ".jpg");
+	std::error_code ec;
+	if (fs::exists(file, ec) && fs::file_size(file, ec) > 0)
+	{
+		// Pictures can be big, so only a handful stay loaded at once.
+		while (thumbOrder_.size() >= 6)
+		{
+			thumbs_.erase(thumbOrder_.front());
+			thumbOrder_.erase(thumbOrder_.begin());
+		}
+		auto image = std::make_shared<ImageWrapper>(file.wstring(), false, true);
+		thumbs_[entry.id] = image;
+		thumbOrder_.push_back(entry.id);
+		return image;
+	}
+
+	if (thumbDownloading_ != 0) return nullptr;   // one at a time
+	thumbDownloading_ = entry.id;
+	fs::create_directories(dir, ec);
+	fs::path part = file;
+	part += ".part";
+	const int id = entry.id;
+	CurlRequest req;
+	req.url = entry.image;
+	req.verb = "GET";
+	req.headers["User-Agent"] = kUserAgent;
+	HttpWrapper::SendCurlRequest(req, part.wstring(), [this, id, file, part](int code, std::wstring) {
+		std::error_code ec;
+		const auto size = fs::exists(part, ec) ? fs::file_size(part, ec) : 0;
+		bool ok = code == 200 && size > 0 && size < 8 * 1024 * 1024;
+		if (ok)
+		{
+			fs::rename(part, file, ec);
+			ok = !ec;
+		}
+		if (!ok)
+		{
+			fs::remove(part, ec);
+			std::lock_guard<std::mutex> lock(mutex_);
+			thumbFailed_.insert(id);
+		}
+		thumbDownloading_ = 0;
+	});
+	return nullptr;
+}
+
 // Browse tab: every map from bakkesplugins.com in one searchable list, with one-click install.
 void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 {
@@ -1577,6 +1637,7 @@ void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 	const bool wantUntyped = browseTag_ == "-";
 	const std::string wantedTag = browseTag_.empty() || wantUntyped ? "" : "," + browseTag_ + ",";
 	int shown = 0;
+	bool anyHovered = false;
 	const float listHeight = (std::max)(180.f, ImGui::GetContentRegionAvail().y - 95.f);
 	ImGui::BeginChild("##browse", ImVec2(0, listHeight), true);
 	const float rightEdge = ImGui::GetWindowContentRegionWidth();
@@ -1628,22 +1689,49 @@ void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 		info += (info.empty() ? "" : "   |   ") + std::string("#") + std::to_string(e.id);
 		ImGui::TextDisabled("%s", info.c_str());
 
-		if ((nameHovered || ImGui::IsItemHovered()) && !e.description.empty())
+		if (nameHovered || ImGui::IsItemHovered())
 		{
-			ImGui::BeginTooltip();
-			ImGui::PushTextWrapPos(380.f);
-			ImGui::TextUnformatted(e.description.c_str());
-			if (!e.updated.empty()) ImGui::TextDisabled("Updated %s", e.updated.c_str());
-			ImGui::PopTextWrapPos();
-			ImGui::EndTooltip();
+			anyHovered = true;
+			if (hoverId_ != e.id)
+			{
+				hoverId_ = e.id;
+				hoverSince_ = ImGui::GetTime();
+			}
+			// Wait a beat before fetching a picture, so sweeping the mouse down the list doesn't download them all.
+			const bool settled = ImGui::GetTime() - hoverSince_ > 0.25;
+			std::shared_ptr<ImageWrapper> picture = GetThumb(e, settled);
+			if (!e.description.empty() || !e.image.empty())
+			{
+				ImGui::BeginTooltip();
+				bool drawn = false;
+				if (picture && picture->IsLoadedForImGui())
+				{
+					const Vector2F size = picture->GetSizeF();
+					if (void* texture = size.X > 1.f && size.Y > 1.f ? picture->GetImGuiTex() : nullptr)
+					{
+						float w = 380.f, h = w * size.Y / size.X;
+						if (h > 240.f) { h = 240.f; w = h * size.X / size.Y; }
+						ImGui::Image((ImTextureID)texture, ImVec2(w, h));
+						drawn = true;
+					}
+				}
+				if (!drawn && !e.image.empty() && (thumbDownloading_ == e.id || !settled || picture))
+					ImGui::TextDisabled("Loading picture...");
+				ImGui::PushTextWrapPos(380.f);
+				if (!e.description.empty()) ImGui::TextUnformatted(e.description.c_str());
+				if (!e.updated.empty()) ImGui::TextDisabled("Updated %s", e.updated.c_str());
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
 		}
 		ImGui::Separator();
 		ImGui::PopID();
 	}
+	if (!anyHovered) hoverId_ = 0;
 	if (shown == 0) ImGui::TextWrapped("Nothing matches that. Try a shorter search or pick All maps.");
 	ImGui::EndChild();
 
-	ImGui::TextDisabled("%d of %d maps. Hover a map to read about it.", shown, (int)catalogView_.size());
+	ImGui::TextDisabled("%d of %d maps. Hover a map for its picture and description.", shown, (int)catalogView_.size());
 	ImGui::SameLine(ImGui::GetWindowContentRegionWidth() - 150);
 	if (ImGui::SmallButton("Open the website"))
 		ShellExecuteA(nullptr, "open", kSite, nullptr, nullptr, SW_SHOWNORMAL);

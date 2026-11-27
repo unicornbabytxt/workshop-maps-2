@@ -4,6 +4,9 @@
 #include "bakkesmod/plugin/pluginwindow.h"
 #include "bakkesmod/plugin/PluginSettingsWindow.h"
 
+#include <functional>
+#include "bakkesmod/wrappers/ImageWrapper.h"
+
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -32,6 +35,7 @@ struct CatalogEntry
 	int downloads = 0;
 	std::string updated;            // YYYY-MM-DD
 	std::string tags;               // comma separated
+	std::string image;              // cover picture address, empty if the map has none
 	std::string description;
 	std::string search;             // lowercase text the search box looks through
 };
@@ -98,6 +102,7 @@ private:
 	void RenderBody();
 	void RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy);
 	void LoadCatalog(bool force);
+	std::shared_ptr<ImageWrapper> GetThumb(const CatalogEntry& entry, bool mayDownload);
 	void CheckForUpdate();
 	void InstallUpdate();
 	void SetStatus(const std::string& text, bool isError = false);
@@ -128,6 +133,11 @@ private:
 	int browseSort_ = 0;                              // 0 most downloaded, 1 newest, 2 name
 	std::string browseTag_;                           // empty = every type
 	bool gotoBrowse_ = false;                         // jump to the Browse tab on the next frame
+	std::map<int, std::shared_ptr<ImageWrapper>> thumbs_;   // cover pictures loaded right now, by map number (UI thread only)
+	std::vector<int> thumbOrder_;                     // oldest loaded picture first
+	std::atomic<int> thumbDownloading_{ 0 };          // map number whose picture is downloading, 0 if none
+	int hoverId_ = 0;                                 // map the mouse is resting on in Browse
+	double hoverSince_ = 0;
 	std::vector<CatalogEntry> catalogView_;           // the list as the window shows it (UI thread only)
 	std::vector<std::pair<std::string, int>> catalogTags_;   // map type, how many maps have it
 	int catalogSeen_ = -1;
@@ -145,6 +155,7 @@ private:
 	std::vector<MapEntry> maps_;
 	std::vector<ZipEntry> zips_;
 	std::vector<CatalogEntry> catalog_;
+	std::set<int> thumbFailed_;                                 // pictures that wouldn't download, so we don't keep retrying
 	std::vector<std::filesystem::path> textureDupes_;           // texture files that exist outside the main game folder
 	std::map<std::string, int> matchReady_;                     // map file -> 0 checking, 1 built for matches, 2 not
 	std::vector<std::pair<std::string, std::string>> vlans_;    // virtual LAN app name, this PC's address in it

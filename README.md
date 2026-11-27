@@ -24,7 +24,7 @@ Console shortcuts: `wm_install 298`, `wm_open`.
 
 ## Browse maps
 
-The Browse tab lists the maps from bakkesplugins.com right inside the game. Search by map or creator, filter by type, sort by most downloaded or newest, and hit Install. Maps you already have show a Play button instead. Hover a map to read its description.
+The Browse tab lists the maps from bakkesplugins.com right inside the game. Search by map or creator, filter by type, sort by most downloaded or newest, and hit Install. Maps you already have show a Play button instead. Hover a map to see its cover picture (when it has one) and description.
 
 The list is a file in this repo (`data/maps.tsv`), so it can be refreshed without a new plugin build. `data/maps.json` is the source and `tools/build_index.py` turns it into the compact file the plugin downloads.
 
