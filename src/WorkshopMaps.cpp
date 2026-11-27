@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <ctime>
 #include <cwctype>
 #include <fstream>
@@ -26,7 +27,7 @@
 
 namespace fs = std::filesystem;
 
-BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.3.0", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(WorkshopMaps, "Workshop Maps 2.0", "1.4.0", PLUGINTYPE_FREEPLAY)
 
 namespace
 {
@@ -48,6 +49,8 @@ namespace
 #define WM_BUILD 0
 #endif
 	// Built files are published to the "dist" branch of the repo by GitHub Actions.
+	// The Browse tab's map list. It lives in the repo so it can be refreshed without shipping a new build.
+	const char* kCatalogUrl = "https://raw.githubusercontent.com/unicornbabytxt/workshop-maps-2/main/data/maps.tsv";
 	const char* kUpdateBase = "https://raw.githubusercontent.com/unicornbabytxt/workshop-maps-2/dist/";
 
 	// ---- Look and feel, applied only to this plugin's window ----
@@ -352,6 +355,66 @@ namespace
 			std::copy(buffer.begin() + (have - carried), buffer.begin() + have, buffer.begin());
 		}
 		return false;
+	}
+
+	// Letters and numbers only, so "Air_Dribble_Hoops" and "Air Dribble Hoops" count as the same map.
+	std::string NameKey(const std::string& s)
+	{
+		std::string out;
+		for (unsigned char c : s) if (std::isalnum(c)) out += (char)std::tolower(c);
+		return out;
+	}
+
+	// 79900 -> "79.9K"
+	std::string ShortCount(int n)
+	{
+		char buf[32];
+		if (n >= 1000000) snprintf(buf, sizeof(buf), "%.1fM", n / 1000000.0);
+		else if (n >= 1000) snprintf(buf, sizeof(buf), "%.1fK", n / 1000.0);
+		else snprintf(buf, sizeof(buf), "%d", n);
+		return buf;
+	}
+
+	// Reads the map list: one map per line, tab separated (see tools/build_index.py).
+	std::vector<CatalogEntry> ParseCatalog(const std::string& text)
+	{
+		std::vector<CatalogEntry> out;
+		size_t start = 0;
+		while (start < text.size() && out.size() < 5000)
+		{
+			size_t end = text.find('\n', start);
+			if (end == std::string::npos) end = text.size();
+			std::string line = text.substr(start, end - start);
+			start = end + 1;
+			if (!line.empty() && line.back() == '\r') line.pop_back();
+
+			std::vector<std::string> cols;
+			size_t a = 0;
+			for (;;)
+			{
+				size_t b = line.find('\t', a);
+				if (b == std::string::npos) { cols.push_back(line.substr(a)); break; }
+				cols.push_back(line.substr(a, b - a));
+				a = b + 1;
+			}
+			if (cols.size() < 8) continue;
+			const auto digits = [](const std::string& s) {
+				return !s.empty() && s.size() <= 9 && std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c); });
+			};
+			if (!digits(cols[0]) || cols[1].empty()) continue;
+
+			CatalogEntry e;
+			e.id = std::stoi(cols[0]);
+			e.name = cols[1];
+			e.author = cols[2];
+			e.downloads = digits(cols[3]) ? std::stoi(cols[3]) : 0;
+			e.updated = cols[4];
+			e.tags = cols[5];
+			e.description = cols[7];
+			e.search = Lower(e.name + " " + e.author + " " + e.tags + " " + e.description);
+			if (e.id > 0) out.push_back(std::move(e));
+		}
+		return out;
 	}
 
 	bool IsTextureFile(const fs::path& p)
@@ -726,6 +789,62 @@ void WorkshopMaps::CheckForUpdate()
 		if (code != 200 || text.empty() || text.size() > 9) return;
 		if (!std::all_of(text.begin(), text.end(), [](unsigned char c) { return std::isdigit(c); })) return;
 		latestBuild_ = std::stoi(text);
+	});
+}
+
+// Loads the Browse tab's map list. Shows the copy saved last time right away, then grabs the newest one.
+void WorkshopMaps::LoadCatalog(bool force)
+{
+	const fs::path cache = gameWrapper->GetDataFolder() / "workshopmaps" / "maps.tsv";
+	if (catalogState_ == 0)
+	{
+		std::ifstream in(cache, std::ios::binary);
+		if (in)
+		{
+			std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			std::vector<CatalogEntry> saved = ParseCatalog(text);
+			if (!saved.empty())
+			{
+				std::lock_guard<std::mutex> lock(mutex_);
+				catalog_ = std::move(saved);
+				++catalogVersion_;
+			}
+		}
+	}
+
+	// Check for a newer list at most every 30 minutes, unless the player hit Refresh.
+	const auto now = std::chrono::steady_clock::now();
+	const bool fetchedBefore = lastCatalogFetch_.time_since_epoch().count() != 0;
+	if (catalogState_ == 1) return;
+	if (!force && fetchedBefore && now - lastCatalogFetch_ < std::chrono::minutes(30)) return;
+	lastCatalogFetch_ = now;
+
+	bool haveList = false;
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		haveList = !catalog_.empty();
+	}
+	catalogState_ = 1;
+	CurlRequest req;
+	req.url = kCatalogUrl;
+	req.verb = "GET";
+	HttpWrapper::SendCurlRequest(req, [this, cache, haveList](int code, std::string data) {
+		std::vector<CatalogEntry> fresh = code == 200 ? ParseCatalog(data) : std::vector<CatalogEntry>();
+		if (fresh.empty())
+		{
+			// Keep showing the saved list if there is one.
+			catalogState_ = haveList ? 2 : 3;
+			return;
+		}
+		std::error_code ec;
+		fs::create_directories(cache.parent_path(), ec);
+		std::ofstream(cache, std::ios::binary | std::ios::trunc) << data;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			catalog_ = std::move(fresh);
+			++catalogVersion_;
+		}
+		catalogState_ = 2;
 	});
 }
 
@@ -1299,6 +1418,176 @@ void WorkshopMaps::SpawnBall()
 	});
 }
 
+// Browse tab: every map from bakkesplugins.com in one searchable list, with one-click install.
+void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
+{
+	LoadCatalog(false);
+
+	// Pull in a new list when one has arrived, and rebuild the map type choices.
+	const int version = catalogVersion_;
+	if (version != catalogSeen_)
+	{
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			catalogView_ = catalog_;
+		}
+		catalogSeen_ = version;
+		catalogSortSeen_ = -1;
+		std::map<std::string, int> counts;
+		for (const CatalogEntry& e : catalogView_)
+		{
+			size_t a = 0;
+			while (a < e.tags.size())
+			{
+				size_t b = e.tags.find(',', a);
+				if (b == std::string::npos) b = e.tags.size();
+				if (b > a) ++counts[e.tags.substr(a, b - a)];
+				a = b + 1;
+			}
+		}
+		catalogTags_.assign(counts.begin(), counts.end());
+		std::sort(catalogTags_.begin(), catalogTags_.end(), [](const auto& x, const auto& y) { return x.second > y.second; });
+		if (!browseTag_.empty() && counts.count(browseTag_) == 0) browseTag_.clear();
+	}
+	if (browseSort_ != catalogSortSeen_)
+	{
+		const int mode = browseSort_;
+		std::stable_sort(catalogView_.begin(), catalogView_.end(), [mode](const CatalogEntry& a, const CatalogEntry& b) {
+			if (mode == 1) return a.updated > b.updated;
+			if (mode == 2) return Lower(a.name) < Lower(b.name);
+			return a.downloads > b.downloads;
+		});
+		catalogSortSeen_ = browseSort_;
+	}
+
+	const int state = catalogState_;
+	if (catalogView_.empty())
+	{
+		ImGui::Spacing();
+		if (state == 3)
+		{
+			ImGui::TextColored(kWarn, "Couldn't load the map list. Check your internet and try again.");
+			if (PrimaryButton("Try again")) LoadCatalog(true);
+			ImGui::SameLine();
+		}
+		else
+			ImGui::TextDisabled("Loading the map list...");
+		if (ImGui::Button("Open bakkesplugins.com instead"))
+			ShellExecuteA(nullptr, "open", kSite, nullptr, nullptr, SW_SHOWNORMAL);
+		return;
+	}
+
+	// ---- Search, type, sort ----
+	ImGui::Spacing();
+	ImGui::PushItemWidth(200);
+	ImGui::InputTextWithHint("##browsefilter", "Search maps or creators", &browseFilter_);
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
+	ImGui::PushItemWidth(140);
+	if (ImGui::BeginCombo("##browsetag", browseTag_.empty() ? "All types" : browseTag_.c_str()))
+	{
+		if (ImGui::Selectable("All types", browseTag_.empty())) browseTag_.clear();
+		for (const auto& tag : catalogTags_)
+		{
+			const std::string label = tag.first + "  (" + std::to_string(tag.second) + ")";
+			if (ImGui::Selectable(label.c_str(), browseTag_ == tag.first)) browseTag_ = tag.first;
+		}
+		ImGui::EndCombo();
+	}
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
+	ImGui::PushItemWidth(150);
+	const char* sorts[] = { "Most downloaded", "Newest", "Name A to Z" };
+	ImGui::Combo("##browsesort", &browseSort_, sorts, IM_ARRAYSIZE(sorts));
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
+	if (state == 1) ImGui::TextDisabled("Checking...");
+	else if (ImGui::Button("Refresh list")) LoadCatalog(true);
+
+	if (busy) ImGui::ProgressBar(progress_.load(), ImVec2(-1, 0));
+
+	// What's already installed, by map number and by name.
+	std::map<std::string, const MapEntry*> byId, byName;
+	for (const MapEntry& m : maps)
+	{
+		if (!m.id.empty()) byId[m.id] = &m;
+		byName[NameKey(m.name)] = &m;
+	}
+
+	const std::string filter = Lower(Trim(browseFilter_));
+	const std::string wantedTag = browseTag_.empty() ? "" : "," + browseTag_ + ",";
+	int shown = 0;
+	const float listHeight = (std::max)(180.f, ImGui::GetContentRegionAvail().y - 95.f);
+	ImGui::BeginChild("##browse", ImVec2(0, listHeight), true);
+	const float rightEdge = ImGui::GetWindowContentRegionWidth();
+	for (const CatalogEntry& e : catalogView_)
+	{
+		if (!filter.empty() && e.search.find(filter) == std::string::npos) continue;
+		if (!wantedTag.empty() && ("," + e.tags + ",").find(wantedTag) == std::string::npos) continue;
+		++shown;
+		ImGui::PushID(e.id);
+
+		const MapEntry* installed = nullptr;
+		if (auto it = byId.find(std::to_string(e.id)); it != byId.end()) installed = it->second;
+		else if (auto it2 = byName.find(NameKey(e.name)); it2 != byName.end()) installed = it2->second;
+
+		if (installed)
+		{
+			if (ImGui::Button("Play")) LoadMap(*installed);
+		}
+		else if (busy)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.58f, 0.64f, 1.f));
+			ImGui::Button("Wait...");
+			ImGui::PopStyleColor();
+		}
+		else if (PrimaryButton("Install"))
+			InstallFromInput(std::to_string(e.id));
+
+		ImGui::SameLine();
+		ImGui::TextUnformatted(e.name.c_str());
+		const bool nameHovered = ImGui::IsItemHovered();
+		if (installed)
+		{
+			ImGui::SameLine();
+			ImGui::TextColored(kGood, "Installed");
+		}
+		const std::string count = ShortCount(e.downloads) + " downloads";
+		ImGui::SameLine(rightEdge - ImGui::CalcTextSize(count.c_str()).x - 4.f);
+		ImGui::TextDisabled("%s", count.c_str());
+
+		// Second line: who made it, what kind of map it is, and the map number.
+		std::string info = e.author.empty() ? "" : "by " + e.author;
+		if (!e.tags.empty())
+		{
+			std::string tags = e.tags;
+			ReplaceAll(tags, ",", ", ");
+			info += (info.empty() ? "" : "   |   ") + tags;
+		}
+		info += (info.empty() ? "" : "   |   ") + std::string("#") + std::to_string(e.id);
+		ImGui::TextDisabled("%s", info.c_str());
+
+		if ((nameHovered || ImGui::IsItemHovered()) && !e.description.empty())
+		{
+			ImGui::BeginTooltip();
+			ImGui::PushTextWrapPos(380.f);
+			ImGui::TextUnformatted(e.description.c_str());
+			if (!e.updated.empty()) ImGui::TextDisabled("Updated %s", e.updated.c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+		ImGui::Separator();
+		ImGui::PopID();
+	}
+	if (shown == 0) ImGui::TextWrapped("Nothing matches that. Try a shorter search or pick All types.");
+	ImGui::EndChild();
+
+	ImGui::TextDisabled("%d of %d maps. Hover a map to read about it.", shown, (int)catalogView_.size());
+	ImGui::SameLine(ImGui::GetWindowContentRegionWidth() - 150);
+	if (ImGui::SmallButton("Open the website"))
+		ShellExecuteA(nullptr, "open", kSite, nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 void WorkshopMaps::RenderFriendsTab(const std::vector<MapEntry>& maps, bool busy)
 {
 	ImGui::TextWrapped("One person hosts, everyone else joins with a code. Everybody needs this plugin and has to launch with anti-cheat disabled.");
@@ -1592,8 +1881,7 @@ void WorkshopMaps::RenderBody()
 		inputBuf_.clear();
 	}
 	ImGui::SameLine();
-	if (ImGui::Button("Find maps (opens browser)"))
-		ShellExecuteA(nullptr, "open", kSite, nullptr, nullptr, SW_SHOWNORMAL);
+	if (ImGui::Button("Browse maps")) gotoBrowse_ = true;
 	ImGui::TextDisabled("The number is the end of the map's page address: bakkesplugins.com/maps/298");
 
 	if (busy) ImGui::ProgressBar(progress_.load(), ImVec2(-1, 0));
@@ -1776,6 +2064,14 @@ void WorkshopMaps::RenderBody()
 		}
 	}
 
+		ImGui::EndTabItem();
+	}
+	const bool jumpToBrowse = gotoBrowse_;
+	gotoBrowse_ = false;
+	if (ImGui::BeginTabItem("Browse", nullptr, jumpToBrowse ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None))
+	{
+		RenderBrowseTab(maps, busy);
+		StatusLine(status, statusIsError);
 		ImGui::EndTabItem();
 	}
 	if (ImGui::BeginTabItem("Play with Friends"))

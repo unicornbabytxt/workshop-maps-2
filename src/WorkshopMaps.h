@@ -23,6 +23,19 @@ struct MapEntry
 	bool duplicate = false;         // another installed map uses the same file name
 };
 
+// One map in the Browse tab's list.
+struct CatalogEntry
+{
+	int id = 0;                     // bakkesplugins map number
+	std::string name;
+	std::string author;
+	int downloads = 0;
+	std::string updated;            // YYYY-MM-DD
+	std::string tags;               // comma separated
+	std::string description;
+	std::string search;             // lowercase text the search box looks through
+};
+
 struct ZipEntry
 {
 	std::string name;
@@ -82,6 +95,8 @@ private:
 	void MarkPlayed(const MapEntry& map);
 	void CheckLastCrash();
 	void RenderBody();
+	void RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy);
+	void LoadCatalog(bool force);
 	void CheckForUpdate();
 	void InstallUpdate();
 	void SetStatus(const std::string& text, bool isError = false);
@@ -106,6 +121,17 @@ private:
 	bool floorKnown_ = false;          // have we seen the car driving on a floor in this map yet
 	float floorZ_ = 0.f;               // height of the surface the car last drove on
 	std::string ringMap_;              // map the floor height belongs to
+	std::string browseFilter_;
+	int browseSort_ = 0;                              // 0 most downloaded, 1 newest, 2 name
+	std::string browseTag_;                           // empty = every type
+	bool gotoBrowse_ = false;                         // jump to the Browse tab on the next frame
+	std::vector<CatalogEntry> catalogView_;           // the list as the window shows it (UI thread only)
+	std::vector<std::pair<std::string, int>> catalogTags_;   // map type, how many maps have it
+	int catalogSeen_ = -1;
+	int catalogSortSeen_ = -1;
+	std::chrono::steady_clock::time_point lastCatalogFetch_{};
+	std::atomic<int> catalogVersion_{ 0 };
+	std::atomic<int> catalogState_{ 0 };              // 0 not loaded, 1 loading, 2 ready, 3 couldn't load
 	std::atomic<int> latestBuild_{ 0 };
 	std::atomic<bool> updating_{ false };
 	std::atomic<bool> updated_{ false };
@@ -115,6 +141,7 @@ private:
 	std::mutex mutex_;                 // guards everything below
 	std::vector<MapEntry> maps_;
 	std::vector<ZipEntry> zips_;
+	std::vector<CatalogEntry> catalog_;
 	std::vector<std::filesystem::path> textureDupes_;           // texture files that exist outside the main game folder
 	std::map<std::string, int> matchReady_;                     // map file -> 0 checking, 1 built for matches, 2 not
 	std::vector<std::pair<std::string, std::string>> vlans_;    // virtual LAN app name, this PC's address in it

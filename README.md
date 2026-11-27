@@ -12,7 +12,8 @@ Install and play Rocket League workshop maps without the console. Type a map num
 ## Use it
 
 - Press F2 > Plugins > Workshop Maps 2.0 > Open Workshop Maps. Or bind a key to `togglemenu workshopmaps2`.
-- Find a map at https://bakkesplugins.com/maps. The number at the end of the page address is the map number.
+- Easiest way: open the Browse tab, find a map, hit Install.
+- Or find a map at https://bakkesplugins.com/maps. The number at the end of the page address is the map number.
 - Type the number (or paste the whole link), hit Install, then hit Play next to the map.
 
 Maps go in `<Rocket League>\TAGame\CookedPCConsole\mods` by default. Anything already in there shows up in the list. You can change the folder under Settings.
@@ -20,6 +21,12 @@ Maps go in `<Rocket League>\TAGame\CookedPCConsole\mods` by default. Anything al
 If the number install can't reach the site, download the zip in your browser and use "Install from a zip in my Downloads folder" in the plugin.
 
 Console shortcuts: `wm_install 298`, `wm_open`.
+
+## Browse maps
+
+The Browse tab lists the maps from bakkesplugins.com right inside the game. Search by map or creator, filter by type, sort by most downloaded or newest, and hit Install. Maps you already have show a Play button instead. Hover a map to read its description.
+
+The list is a file in this repo (`data/maps.tsv`), so it can be refreshed without a new plugin build. `data/maps.json` is the source and `tools/build_index.py` turns it into the compact file the plugin downloads.
 
 ## Free play mode
 
