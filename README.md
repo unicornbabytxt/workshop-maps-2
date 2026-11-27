@@ -44,7 +44,7 @@ Hit Favorite on a map to pin it to the top of the list. Under your favorites, th
 
 ## Ball height ring
 
-On maps where you play on a raised floor, the game's own ring under the ball sits in the wrong spot. With "Ball height ring" on, the plugin draws a blue ring under the ball at the height of the surface your car is driving on. It learns the height as you drive, so it shows up after your wheels have touched the floor. If the ball is over a different level than you, the ring will be off.
+On maps where you play on a raised floor, the game's own ring under the ball sits in the wrong spot. With "Ball height ring" on, the plugin draws its own ring under the ball at the height of the surface your car is driving on. Like the game's ring, the outer ring stays the same size and the inner one grows as the ball comes down. It learns the height as you drive, so it shows up after your wheels have touched the floor. If the ball is over a different level than you, the ring will be off.
 
 The idea comes from True Ball Height Indicator by CinderBlock. This is a separate, simpler version written from scratch.
 

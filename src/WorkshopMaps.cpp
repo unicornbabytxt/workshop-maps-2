@@ -1378,12 +1378,15 @@ void WorkshopMaps::DrawBallRing(CanvasWrapper canvas)
 	const Vector camLoc = camera.GetLocation();
 	const Vector forward = RotatorToVector(camera.GetRotation());
 
-	// Two rings on the floor under the ball, drawn as short line segments. Points behind the camera are skipped.
-	canvas.SetColor((char)60, (char)170, (char)255, (char)235);
+	// Two rings on the floor under the ball, like the game's own marker: the outer one stays the same size,
+	// the inner one is small when the ball is high and grows out to meet it as the ball comes down.
+	const float closeness = 1.f - std::clamp(gap / 1500.f, 0.f, 1.f);
+	const float innerRadius = radius * (0.15f + 0.85f * closeness);
+	canvas.SetColor((char)255, (char)255, (char)255, (char)235);
 	const int segments = 40;
 	for (int ring = 0; ring < 2; ++ring)
 	{
-		const float r = ring == 0 ? radius : radius * 0.45f;
+		const float r = ring == 0 ? radius : innerRadius;
 		Vector2F previous{ 0.f, 0.f };
 		bool previousVisible = false;
 		for (int i = 0; i <= segments; ++i)
@@ -1447,7 +1450,7 @@ void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 		}
 		catalogTags_.assign(counts.begin(), counts.end());
 		std::sort(catalogTags_.begin(), catalogTags_.end(), [](const auto& x, const auto& y) { return x.second > y.second; });
-		if (!browseTag_.empty() && counts.count(browseTag_) == 0) browseTag_.clear();
+		if (!browseTag_.empty() && browseTag_ != "-" && counts.count(browseTag_) == 0) browseTag_.clear();
 	}
 	if (browseSort_ != catalogSortSeen_)
 	{
@@ -1484,14 +1487,20 @@ void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 	ImGui::PopItemWidth();
 	ImGui::SameLine();
 	ImGui::PushItemWidth(140);
-	if (ImGui::BeginCombo("##browsetag", browseTag_.empty() ? "All types" : browseTag_.c_str()))
+	// "-" stands for maps whose page doesn't list a type.
+	int untyped = 0;
+	for (const CatalogEntry& e : catalogView_) if (e.tags.empty()) ++untyped;
+	const std::string untypedLabel = "Everything else  (" + std::to_string(untyped) + ")";
+	const char* tagPreview = browseTag_.empty() ? "All maps" : browseTag_ == "-" ? "Everything else" : browseTag_.c_str();
+	if (ImGui::BeginCombo("##browsetag", tagPreview))
 	{
-		if (ImGui::Selectable("All types", browseTag_.empty())) browseTag_.clear();
+		if (ImGui::Selectable("All maps", browseTag_.empty())) browseTag_.clear();
 		for (const auto& tag : catalogTags_)
 		{
 			const std::string label = tag.first + "  (" + std::to_string(tag.second) + ")";
 			if (ImGui::Selectable(label.c_str(), browseTag_ == tag.first)) browseTag_ = tag.first;
 		}
+		if (untyped > 0 && ImGui::Selectable(untypedLabel.c_str(), browseTag_ == "-")) browseTag_ = "-";
 		ImGui::EndCombo();
 	}
 	ImGui::PopItemWidth();
@@ -1515,7 +1524,8 @@ void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 	}
 
 	const std::string filter = Lower(Trim(browseFilter_));
-	const std::string wantedTag = browseTag_.empty() ? "" : "," + browseTag_ + ",";
+	const bool wantUntyped = browseTag_ == "-";
+	const std::string wantedTag = browseTag_.empty() || wantUntyped ? "" : "," + browseTag_ + ",";
 	int shown = 0;
 	const float listHeight = (std::max)(180.f, ImGui::GetContentRegionAvail().y - 95.f);
 	ImGui::BeginChild("##browse", ImVec2(0, listHeight), true);
@@ -1523,6 +1533,7 @@ void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 	for (const CatalogEntry& e : catalogView_)
 	{
 		if (!filter.empty() && e.search.find(filter) == std::string::npos) continue;
+		if (wantUntyped && !e.tags.empty()) continue;
 		if (!wantedTag.empty() && ("," + e.tags + ",").find(wantedTag) == std::string::npos) continue;
 		++shown;
 		ImGui::PushID(e.id);
@@ -1579,7 +1590,7 @@ void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 		ImGui::Separator();
 		ImGui::PopID();
 	}
-	if (shown == 0) ImGui::TextWrapped("Nothing matches that. Try a shorter search or pick All types.");
+	if (shown == 0) ImGui::TextWrapped("Nothing matches that. Try a shorter search or pick All maps.");
 	ImGui::EndChild();
 
 	ImGui::TextDisabled("%d of %d maps. Hover a map to read about it.", shown, (int)catalogView_.size());
@@ -1942,7 +1953,7 @@ void WorkshopMaps::RenderBody()
 		cvarManager->executeCommand("writeconfig", false);
 	}
 	ImGui::SameLine();
-	ImGui::TextDisabled("Blue ring under the ball on raised floors, at the height you're driving on.");
+	ImGui::TextDisabled("Ring under the ball on raised floors. The inner ring grows as the ball drops.");
 
 	// The list takes whatever room is left, so the sections and footer below it stay on screen.
 	const float listHeight = (std::max)(180.f, ImGui::GetContentRegionAvail().y - 185.f);
