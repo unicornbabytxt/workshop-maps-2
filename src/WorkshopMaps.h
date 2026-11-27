@@ -79,6 +79,7 @@ private:
 	void EnsureAutoload();
 	std::filesystem::path BackupDir();
 	void CheckTextures();
+	void DownloadTextures();
 	void InstallTexturesFromZip(const std::filesystem::path& zip);
 	void PollTextureZip();
 	int FixTextureDuplicates();
@@ -165,6 +166,8 @@ private:
 	std::atomic<bool> busy_{ false };
 	std::atomic<int> texturesMissing_{ 0 };
 	std::atomic<bool> texturesBusy_{ false };
+	std::atomic<bool> textureDownload_{ false };      // the textures zip is downloading
+	std::atomic<float> textureProgress_{ 0.f };
 	double lastTexturePoll_ = 0;
 	std::chrono::steady_clock::time_point lastUpdateCheck_{};
 	std::vector<std::filesystem::path> triedTextureZips_;

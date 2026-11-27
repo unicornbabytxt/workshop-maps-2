@@ -34,6 +34,7 @@ namespace
 	const char* kSite = "https://bakkesplugins.com/maps";
 	const char* kCdn = "https://cdn.bakkesplugins.com/";
 	const int kPort = 7777;
+	const int kTexturesMapId = 96;   // the workshop textures pack is posted on bakkesplugins as "map" 96
 	const char* kTexturesUrl = "https://videogamemods.com/vgm/rocketleague/mods/workshop-textures";
 	const char* kRadminUrl = "https://www.radmin-vpn.com/";
 	// The shared files most workshop maps need. Without them maps show up black or pink.
@@ -922,6 +923,55 @@ void WorkshopMaps::CheckTextures()
 	textureDupes_ = std::move(dupes);
 }
 
+// One-click textures: downloads the textures pack from bakkesplugins the same way a map is downloaded, then
+// installs it. Only the known texture files are copied, and only the ones the game is missing.
+void WorkshopMaps::DownloadTextures()
+{
+	if (texturesBusy_ || textureDownload_.exchange(true)) return;
+	textureProgress_ = 0.f;
+	SetStatus("Getting the workshop textures...");
+	const fs::path dir = gameWrapper->GetDataFolder() / "workshopmaps";
+	const fs::path zip = dir / "workshop_textures.zip";
+	const std::string failed = "Couldn't get the textures automatically. Use \"Download in browser\" instead.";
+
+	CurlRequest req;
+	req.url = std::string(kSite) + "/" + std::to_string(kTexturesMapId) + "?tab=versions";
+	req.verb = "GET";
+	req.headers["User-Agent"] = kUserAgent;
+	req.headers["Accept"] = "text/html,*/*";
+	HttpWrapper::SendCurlRequest(req, [this, dir, zip, failed](int code, std::string data) {
+		const std::string zipUrl = code == 200 ? FindZipUrl(data) : "";
+		if (zipUrl.empty())
+		{
+			textureDownload_ = false;
+			SetStatus(failed, true);
+			return;
+		}
+		std::error_code ec;
+		fs::create_directories(dir, ec);
+		fs::remove(zip, ec);
+		SetStatus("Downloading the workshop textures...");
+		CurlRequest dl;
+		dl.url = zipUrl;
+		dl.verb = "GET";
+		dl.headers["User-Agent"] = kUserAgent;
+		dl.progress_function = [this](double total, double now, double, double) {
+			if (total > 0) textureProgress_ = (float)(now / total);
+		};
+		HttpWrapper::SendCurlRequest(dl, zip.wstring(), [this, zip, failed](int code, std::wstring) {
+			std::error_code ec;
+			textureDownload_ = false;
+			if (code != 200 || !fs::exists(zip, ec) || fs::file_size(zip, ec) == 0)
+			{
+				fs::remove(zip, ec);
+				SetStatus(failed, true);
+				return;
+			}
+			InstallTexturesFromZip(zip);
+		});
+	});
+}
+
 // Unpacks a downloaded textures zip and copies the files the game is missing into place.
 void WorkshopMaps::InstallTexturesFromZip(const fs::path& zip)
 {
@@ -955,6 +1005,7 @@ void WorkshopMaps::InstallTexturesFromZip(const fs::path& zip)
 			}
 		}
 		fs::remove_all(tmp, ec);
+		if (zip.parent_path() == tmp.parent_path()) fs::remove(zip, ec);   // a zip the plugin downloaded itself, not one of the player's
 		CheckTextures();
 		texturesBusy_ = false;
 
@@ -1653,7 +1704,15 @@ void WorkshopMaps::RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy)
 		if (auto it = byId.find(std::to_string(e.id)); it != byId.end()) installed = it->second;
 		else if (auto it2 = byName.find(NameKey(e.name)); it2 != byName.end()) installed = it2->second;
 
-		if (installed)
+		const bool isTextures = e.id == kTexturesMapId;
+		if (isTextures) installed = nullptr;
+		if (isTextures)
+		{
+			if (texturesMissing_ == 0) ImGui::TextColored(kGood, "Installed");
+			else if (texturesBusy_ || textureDownload_) ImGui::TextDisabled("Working...");
+			else if (PrimaryButton("Install")) DownloadTextures();
+		}
+		else if (installed)
 		{
 			if (ImGui::Button("Play")) LoadMap(*installed);
 		}
@@ -1988,12 +2047,19 @@ void WorkshopMaps::RenderBody()
 			texturesMissing, (int)IM_ARRAYSIZE(kTextureFiles));
 		if (texturesBusy_)
 			ImGui::TextDisabled("Installing textures...");
+		else if (textureDownload_)
+		{
+			ImGui::TextDisabled("Downloading textures...");
+			ImGui::ProgressBar(textureProgress_.load(), ImVec2(-1, 0));
+		}
 		else
 		{
-			if (PrimaryButton("Get textures"))
-				ShellExecuteA(nullptr, "open", kTexturesUrl, nullptr, nullptr, SW_SHOWNORMAL);
+			if (PrimaryButton("Install textures")) DownloadTextures();
 			ImGui::SameLine();
-			ImGui::TextDisabled("Download the zip. The plugin installs it by itself.");
+			if (ImGui::Button("Download in browser"))
+				ShellExecuteA(nullptr, "open", kTexturesUrl, nullptr, nullptr, SW_SHOWNORMAL);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Backup plan. Download the zip and the plugin installs it from your Downloads folder by itself.");
 		}
 		PollTextureZip();
 	}

@@ -54,7 +54,7 @@ When a newer build is out, an "Update now" button shows at the top of the plugin
 
 ## Workshop textures
 
-Most maps need the shared workshop textures or they look black or pink. The plugin checks for them every time it opens. If they're missing, hit "Get textures", download the zip in your browser, and the plugin installs it from your Downloads folder by itself. It also spots texture files that ended up in the wrong folder (the cause of "Ambiguous package name" popups) and fixes them in one click.
+Most maps need the shared workshop textures or they look black or pink. The plugin checks for them every time it opens. If they're missing, hit "Install textures" and the plugin downloads the pack from bakkesplugins.com and puts the files in place. If that can't reach the site, hit "Download in browser", grab the zip, and the plugin installs it from your Downloads folder by itself. Either way it only copies the known texture files, and only the ones you're missing. It also spots texture files that ended up in the wrong folder (the cause of "Ambiguous package name" popups) and fixes them in one click.
 
 ## Play with friends
 
