@@ -89,6 +89,7 @@ private:
 	void TryOpenPort();
 	void SpawnBall();
 	void DrawBallRing(CanvasWrapper canvas);
+	void RingTest(int tick);
 	std::filesystem::path StateFile();
 	void LoadState();
 	void SaveState();
@@ -121,6 +122,8 @@ private:
 	bool floorKnown_ = false;          // have we seen the car driving on a floor in this map yet
 	float floorZ_ = 0.f;               // height of the surface the car last drove on
 	std::string ringMap_;              // map the floor height belongs to
+	float ringTestHeight_ = 0.f;       // ball height being held by the ring test, 0 when it isn't running
+	bool ringTestRunning_ = false;
 	std::string browseFilter_;
 	int browseSort_ = 0;                              // 0 most downloaded, 1 newest, 2 name
 	std::string browseTag_;                           // empty = every type

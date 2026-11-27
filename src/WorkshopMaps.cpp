@@ -450,6 +450,9 @@ void WorkshopMaps::onLoad()
 	fs::remove(gameWrapper->GetBakkesModPath() / "plugins" / "WorkshopMaps2.dll.old", ec);
 	CheckForUpdate();
 
+	cvarManager->registerNotifier("wm_ringtest", [this](std::vector<std::string>) {
+		gameWrapper->Execute([this](GameWrapper*) { RingTest(-60); });
+	}, "Hold the ball at set heights so the game's ball ring can be measured (free play)", PERMISSION_ALL);
 	cvarManager->registerNotifier("wm_spawnball", [this](std::vector<std::string>) { SpawnBall(); },
 		"Spawn a ball above your car (host or solo only)", PERMISSION_ALL);
 
@@ -1337,8 +1340,55 @@ void WorkshopMaps::CheckLastCrash()
 // drove on. It only uses the normal plugin toolkit, with no reading of game memory, so it can't take the
 // game down. The trade-off: if the ball is over a different level than the one you drove on, the ring is off.
 // Idea credit: True Ball Height Indicator by CinderBlock.
+// Measuring tool: holds the ball still over midfield at a few set heights, a few seconds each, so the game's
+// own ring can be screenshotted and copied. Runs in free play on a normal arena.
+void WorkshopMaps::RingTest(int tick)
+{
+	static const float heights[] = { 93.f, 200.f, 350.f, 500.f, 750.f, 1000.f, 1500.f, 1900.f };
+	const int count = (int)(sizeof(heights) / sizeof(heights[0]));
+	const int ticksPerHeight = 80;   // 20 ticks a second, so 4 seconds at each height
+	if (tick <= -60)
+	{
+		if (ringTestRunning_) return;
+		ringTestRunning_ = true;
+	}
+	ServerWrapper server = gameWrapper->GetGameEventAsServer();
+	const int step = tick < 0 ? -1 : tick / ticksPerHeight;
+	if (server.IsNull() || step >= count)
+	{
+		ringTestRunning_ = false;
+		ringTestHeight_ = 0.f;
+		SetStatus(server.IsNull() ? "Ring test needs free play. Load free play on a normal arena first." : "Ring test finished.", server.IsNull());
+		return;
+	}
+	if (step < 0)
+		ringTestHeight_ = -1.f;      // counting down, gives time to close the window
+	else
+	{
+		BallWrapper ball = server.GetBall();
+		if (!ball.IsNull())
+		{
+			ball.SetLocation(Vector(0.f, 0.f, heights[step]));
+			ball.SetVelocity(Vector(0.f, 0.f, 0.f));
+			ball.SetAngularVelocity(Vector(0.f, 0.f, 0.f), false);
+		}
+		ringTestHeight_ = heights[step];
+	}
+	gameWrapper->SetTimeout([this, tick](GameWrapper*) { RingTest(tick + 1); }, 0.05f);
+}
+
 void WorkshopMaps::DrawBallRing(CanvasWrapper canvas)
 {
+	if (ringTestHeight_ != 0.f)
+	{
+		// Label every frame so each screenshot says which height it is.
+		char label[96];
+		if (ringTestHeight_ < 0.f) snprintf(label, sizeof(label), "Ring test starting. Close the plugin window.");
+		else snprintf(label, sizeof(label), "Ring test: ball height %d", (int)ringTestHeight_);
+		canvas.SetColor((char)255, (char)255, (char)0, (char)255);
+		canvas.SetPosition(Vector2F{ 40.f, 40.f });
+		canvas.DrawString(label, 3.f, 3.f, true);
+	}
 	if (!ballRing_) return;
 	ServerWrapper server = gameWrapper->GetGameEventAsServer(); // only exists offline or when hosting
 	if (server.IsNull()) return;
@@ -2073,6 +2123,11 @@ void WorkshopMaps::RenderBody()
 			dirBuf_ = MapsDir().string();
 			RefreshMaps();
 		}
+		ImGui::Spacing();
+		if (ImGui::SmallButton("Run ring test"))
+			gameWrapper->Execute([this](GameWrapper*) { RingTest(-60); });
+		ImGui::SameLine();
+		ImGui::TextDisabled("Free play only. Holds the ball at set heights for measuring the game's ring.");
 	}
 
 		ImGui::EndTabItem();
