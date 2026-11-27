@@ -12,7 +12,8 @@ Install and play Rocket League workshop maps without the console. Type a map num
 ## Use it
 
 - Press F2 > Plugins > Workshop Maps 2.0 > Open Workshop Maps. Or bind a key to `togglemenu workshopmaps2`.
-- Find a map at https://bakkesplugins.com/maps. The number at the end of the page address is the map number.
+- Easiest way: open the Browse tab, find a map, hit Install.
+- Or find a map at https://bakkesplugins.com/maps. The number at the end of the page address is the map number.
 - Type the number (or paste the whole link), hit Install, then hit Play next to the map.
 
 Maps go in `<Rocket League>\TAGame\CookedPCConsole\mods` by default. Anything already in there shows up in the list. You can change the folder under Settings.
@@ -21,11 +22,31 @@ If the number install can't reach the site, download the zip in your browser and
 
 Console shortcuts: `wm_install 298`, `wm_open`.
 
+## Browse maps
+
+The Browse tab lists the maps from bakkesplugins.com right inside the game. Search by map or creator, filter by type, sort by most downloaded or newest, and hit Install. Maps you already have show a Play button instead. Hover a map to see its cover picture (when it has one) and description.
+
+The list is a file in this repo (`data/maps.tsv`), so it can be refreshed without a new plugin build. `data/maps.json` is the source and `tools/build_index.py` turns it into the compact file the plugin downloads.
+
 ## Free play mode
 
 Turn on "Free play mode" above the map list and maps load as Free Play, with a ball and your normal free play bindings.
 
 It doesn't work on every map. It's best on maps that play like a normal arena. Maps with their own mini games or checkpoints use the reset shot button themselves, and Free Play takes that button over, so turn it off for those.
+
+## Crash helper
+
+If Rocket League crashed last time, the plugin reads the game's own log and tells you in plain words what it crashed in: a specific plugin, BakkesMod, or the game and map. If it was a plugin, one button turns it off. Nothing leaves your PC.
+
+## Favorites
+
+Hit Favorite on a map to pin it to the top of the list. Under your favorites, the maps you played most recently come first.
+
+## Ball height ring
+
+On maps where you play on a raised floor, the game's own ring under the ball sits in the wrong spot. With "Ball height ring" on, the plugin draws its own ring under the ball at the height of the surface your car is driving on. Like the game's ring, the outer ring stays the same size and the inner one grows as the ball comes down. It learns the height as you drive, so it shows up after your wheels have touched the floor. If the ball is over a different level than you, the ring will be off.
+
+The idea comes from True Ball Height Indicator by CinderBlock. This is a separate, simpler version written from scratch.
 
 ## Updates
 
@@ -33,7 +54,7 @@ When a newer build is out, an "Update now" button shows at the top of the plugin
 
 ## Workshop textures
 
-Most maps need the shared workshop textures or they look black or pink. The plugin checks for them every time it opens. If they're missing, hit "Get textures", download the zip in your browser, and the plugin installs it from your Downloads folder by itself. It also spots texture files that ended up in the wrong folder (the cause of "Ambiguous package name" popups) and fixes them in one click.
+Most maps need the shared workshop textures or they look black or pink. The plugin checks for them every time it opens. If they're missing, hit "Install textures" and the plugin downloads the pack from bakkesplugins.com and puts the files in place. If that can't reach the site, hit "Download in browser", grab the zip, and the plugin installs it from your Downloads folder by itself. Either way it only copies the known texture files, and only the ones you're missing. It also spots texture files that ended up in the wrong folder (the cause of "Ambiguous package name" popups) and fixes them in one click.
 
 ## Play with friends
 

@@ -4,10 +4,14 @@
 #include "bakkesmod/plugin/pluginwindow.h"
 #include "bakkesmod/plugin/PluginSettingsWindow.h"
 
+#include <functional>
+#include "bakkesmod/wrappers/ImageWrapper.h"
+
 #include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -20,6 +24,20 @@ struct MapEntry
 	std::filesystem::path folder;   // folder to delete when removing (empty for loose files)
 	std::string id;                 // bakkesplugins map number, if installed through the plugin
 	bool duplicate = false;         // another installed map uses the same file name
+};
+
+// One map in the Browse tab's list.
+struct CatalogEntry
+{
+	int id = 0;                     // bakkesplugins map number
+	std::string name;
+	std::string author;
+	int downloads = 0;
+	std::string updated;            // YYYY-MM-DD
+	std::string tags;               // comma separated
+	std::string image;              // cover picture address, empty if the map has none
+	std::string description;
+	std::string search;             // lowercase text the search box looks through
 };
 
 struct ZipEntry
@@ -61,6 +79,7 @@ private:
 	void EnsureAutoload();
 	std::filesystem::path BackupDir();
 	void CheckTextures();
+	void DownloadTextures();
 	void InstallTexturesFromZip(const std::filesystem::path& zip);
 	void PollTextureZip();
 	int FixTextureDuplicates();
@@ -74,7 +93,17 @@ private:
 	void FindPublicIp();
 	void TryOpenPort();
 	void SpawnBall();
+	void DrawBallRing(CanvasWrapper canvas);
+	void RingTest(int tick);
+	std::filesystem::path StateFile();
+	void LoadState();
+	void SaveState();
+	void MarkPlayed(const MapEntry& map);
+	void CheckLastCrash();
 	void RenderBody();
+	void RenderBrowseTab(const std::vector<MapEntry>& maps, bool busy);
+	void LoadCatalog(bool force);
+	std::shared_ptr<ImageWrapper> GetThumb(const CatalogEntry& entry, bool mayDownload);
 	void CheckForUpdate();
 	void InstallUpdate();
 	void SetStatus(const std::string& text, bool isError = false);
@@ -83,11 +112,40 @@ private:
 	std::string inputBuf_;
 	std::string dirBuf_;
 	std::string filterBuf_;
-	int confirmDelete_ = -1;
+	std::string confirmDeletePath_;
+	std::set<std::string> favorites_;                 // map file paths the player starred
+	std::map<std::string, long long> lastPlayed_;     // map file path -> when it was last played
+	std::string dismissedCrash_;                      // crash log the player already dismissed
+	std::string crashLog_;                            // newest crash log with a crash in it, empty if none to show
+	std::string crashCulprit_;                        // plain words: what the crash was in
+	std::string crashPlugin_;                         // plugin name to unload, if a plugin caused it
+	std::string crashMap_;                            // map that was loaded when it crashed
 	int hostMap_ = 0;
 	int hostMode_ = 0;
 	int hostPlayers_ = 8;
 	bool freeplayMode_ = false;
+	bool ballRing_ = true;
+	bool floorKnown_ = false;          // have we seen the car driving on a floor in this map yet
+	float floorZ_ = 0.f;               // height of the surface the car last drove on
+	std::string ringMap_;              // map the floor height belongs to
+	float ringTestHeight_ = 0.f;       // ball height being held by the ring test, 0 when it isn't running
+	bool ringTestRunning_ = false;
+	std::string browseFilter_;
+	int browseSort_ = 0;                              // 0 most downloaded, 1 newest, 2 name
+	std::string browseTag_;                           // empty = every type
+	bool gotoBrowse_ = false;                         // jump to the Browse tab on the next frame
+	std::map<int, std::shared_ptr<ImageWrapper>> thumbs_;   // cover pictures loaded right now, by map number (UI thread only)
+	std::vector<int> thumbOrder_;                     // oldest loaded picture first
+	std::atomic<int> thumbDownloading_{ 0 };          // map number whose picture is downloading, 0 if none
+	int hoverId_ = 0;                                 // map the mouse is resting on in Browse
+	double hoverSince_ = 0;
+	std::vector<CatalogEntry> catalogView_;           // the list as the window shows it (UI thread only)
+	std::vector<std::pair<std::string, int>> catalogTags_;   // map type, how many maps have it
+	int catalogSeen_ = -1;
+	int catalogSortSeen_ = -1;
+	std::chrono::steady_clock::time_point lastCatalogFetch_{};
+	std::atomic<int> catalogVersion_{ 0 };
+	std::atomic<int> catalogState_{ 0 };              // 0 not loaded, 1 loading, 2 ready, 3 couldn't load
 	std::atomic<int> latestBuild_{ 0 };
 	std::atomic<bool> updating_{ false };
 	std::atomic<bool> updated_{ false };
@@ -97,6 +155,8 @@ private:
 	std::mutex mutex_;                 // guards everything below
 	std::vector<MapEntry> maps_;
 	std::vector<ZipEntry> zips_;
+	std::vector<CatalogEntry> catalog_;
+	std::set<int> thumbFailed_;                                 // pictures that wouldn't download, so we don't keep retrying
 	std::vector<std::filesystem::path> textureDupes_;           // texture files that exist outside the main game folder
 	std::map<std::string, int> matchReady_;                     // map file -> 0 checking, 1 built for matches, 2 not
 	std::vector<std::pair<std::string, std::string>> vlans_;    // virtual LAN app name, this PC's address in it
@@ -106,6 +166,8 @@ private:
 	std::atomic<bool> busy_{ false };
 	std::atomic<int> texturesMissing_{ 0 };
 	std::atomic<bool> texturesBusy_{ false };
+	std::atomic<bool> textureDownload_{ false };      // the textures zip is downloading
+	std::atomic<float> textureProgress_{ 0.f };
 	double lastTexturePoll_ = 0;
 	std::chrono::steady_clock::time_point lastUpdateCheck_{};
 	std::vector<std::filesystem::path> triedTextureZips_;

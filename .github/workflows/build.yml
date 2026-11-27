@@ -3,6 +3,8 @@ name: Build plugin
 on:
   push:
     branches: [main]
+    # Updating only the Browse tab's map list shouldn't ship a new build to everyone.
+    paths-ignore: ['data/**']
   pull_request:
   workflow_dispatch:
 
